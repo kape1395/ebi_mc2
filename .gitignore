@@ -1,0 +1,7 @@
+*.beam
+.eunit/
+.project
+.settings/
+logs/
+src/ebi_cm2.app.src
+
