@@ -2,7 +2,7 @@
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([test_mnesia_rw/1]).
 -include_lib("common_test/include/ct.hrl").
--include("bio_ers_queue_mifcl2.hrl").
+-include("ebi_mc2.hrl").
 
 all() ->
     [test_mnesia_rw].

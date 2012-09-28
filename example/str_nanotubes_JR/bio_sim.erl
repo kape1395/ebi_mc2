@@ -2,7 +2,7 @@
 -export([start/0, stop/1, connect/0, model/1, p_base/0, p_skst/0, p_set/3, ids/3, submit/3, status/3, delete/3, result/3, series/1]).
 -export([print_J/2, print_J/3, print_j/2, print_j/3]).
 -export([kmapp/1, kmapp/2, kmapp_J/1, kmapp_SJ/1, kmapp_find/2, kmapp_KM/1]).
--include("bio_ers.hrl").
+-include("ebi.hrl").
 -record(p, {
     d1, d2, d3, d4, s0, e0, alpha, k1, k2,
     de, dn, theta2r, theta3r, theta2z, theta3z, eta, rho
@@ -22,7 +22,7 @@ start() ->
     io:format("PID = bio_sim:connect().~n"),
     io:format("Model = bio_sim:model(PID).~n"),
     io:format("bio_sim:ids(Model, [bio_sim:p_base()], []).~n"),
-    io:format("ok = bio_ers_queue_mifcl2_ssh_chan:check(PID).~n"),
+    io:format("ok = ebi_queue_mifcl2_ssh_chan:check(PID).~n"),
     io:format("% bio_sim:submit(PID, Model, [bio_sim:p_set(bio_sim:p_base(), #p.s0, 5)]).~n"),
     io:format("% bio_sim:status(PID, Model, [bio_sim:p_set(bio_sim:p_base(), #p.s0, 5)]).~n"),
     io:format("% bio_sim:stop(PID).~n"),
@@ -30,14 +30,14 @@ start() ->
     ok.
 
 connect() ->
-    {ok, PID} = bio_ers_queue_mifcl2_ssh_chan:start_link(),
+    {ok, PID} = ebi_queue_mifcl2_ssh_chan:start_link(),
     PID.
 
 model(PID) ->
-    Model = bio_ers_model:read_model("model-1D-k2fin-diffE-t5.xml", kp1_xml),
+    Model = ebi_model:read_model("model-1D-k2fin-diffE-t5.xml", kp1_xml),
     #model{definition = ModelDef} = Model,
-    ModelId = bio_ers:get_id(Model),
-    bio_ers_queue_mifcl2_ssh_chan:store_config(PID, ModelId, ModelDef),
+    ModelId = ebi:get_id(Model),
+    ebi_queue_mifcl2_ssh_chan:store_config(PID, ModelId, ModelDef),
     Model.
 
 %%
@@ -45,24 +45,24 @@ model(PID) ->
 %%
 ids(Model, ParamVectors, ParamIndexes) ->
     Output = fun (Params) ->
-        ID = bio_ers_queue_mifcl2:get_simulation_id(mk_simulation(Model, Params)),
+        ID = ebi_queue_mifcl2:get_simulation_id(mk_simulation(Model, Params)),
         ParamValues = [ element(Index, Params) || Index <- ParamIndexes ],
         { ID, ParamValues }
     end,
     [ Output(Params) || Params <- ParamVectors ].
 
 submit(PID, Model, ParamVectors) ->
-    [ bio_ers_queue_mifcl2_ssh_chan:submit_simulation(PID, mk_simulation(Model, Params)) || Params <- ParamVectors ].
+    [ ebi_queue_mifcl2_ssh_chan:submit_simulation(PID, mk_simulation(Model, Params)) || Params <- ParamVectors ].
 
 status(PID, Model, ParamVectors) ->
-    [ bio_ers_queue_mifcl2_ssh_chan:simulation_status(PID, mk_simulation(Model, Params)) || Params <- ParamVectors ].
+    [ ebi_queue_mifcl2_ssh_chan:simulation_status(PID, mk_simulation(Model, Params)) || Params <- ParamVectors ].
 
 delete(PID, Model, ParamVectors) ->
-    [ bio_ers_queue_mifcl2_ssh_chan:delete_simulation(PID, mk_simulation(Model, Params)) || Params <- ParamVectors ].
+    [ ebi_queue_mifcl2_ssh_chan:delete_simulation(PID, mk_simulation(Model, Params)) || Params <- ParamVectors ].
 
 result(PID, Model, ParamVectors) ->
     Save = fun (Simulation) ->
-        case bio_ers_queue_mifcl2_ssh_chan:simulation_result(PID, Simulation) of
+        case ebi_queue_mifcl2_ssh_chan:simulation_result(PID, Simulation) of
             {ok, SimulationId, Data} ->
                 ok = file:write_file("bio_sim.result/" ++ SimulationId ++ ".tar.gz", Data),  
                 {ok, SimulationId};
@@ -73,7 +73,7 @@ result(PID, Model, ParamVectors) ->
     [ Save(mk_simulation(Model, Params)) || Params <- ParamVectors ].
 
 stop(PID) ->
-    ok = bio_ers_queue_mifcl2_ssh_chan:stop(PID),
+    ok = ebi_queue_mifcl2_ssh_chan:stop(PID),
     init:stop().
 
 
@@ -101,7 +101,7 @@ print_J(Series, OutputParams) when is_record(Series, s) ->
 %%  Print one line to the output.
 %%
 print_J(Simulation, OutputParamValues) when is_record(Simulation, simulation) ->
-    SimulationId = bio_ers_queue_mifcl2:get_simulation_id(Simulation),
+    SimulationId = ebi_queue_mifcl2:get_simulation_id(Simulation),
     Prefix = [ io_lib:format("~p\t", [P]) || P <- OutputParamValues ],
     ExtractedFile = erl_tar:extract(
         "bio_sim.result/" ++ SimulationId ++ ".tar.gz", 
@@ -133,7 +133,7 @@ print_j(Series, OutputParams) when is_record(Series, s) ->
 %%  Print one j-vs-t to the output
 %%
 print_j(Simulation, OutputParams) when is_record(Simulation, simulation) ->
-    SimulationId = bio_ers_queue_mifcl2:get_simulation_id(Simulation),
+    SimulationId = ebi_queue_mifcl2:get_simulation_id(Simulation),
     {ok, [{_, Data}]} = erl_tar:extract(
         "bio_sim.result/" ++ SimulationId ++ ".tar.gz",
         [compressed, memory, {files, [SimulationId ++ "/currentDensity"]}]

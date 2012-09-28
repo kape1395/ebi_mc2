@@ -1,0 +1,6 @@
+ebi_mc2 (0.2.0) oneiric; urgency=low
+
+  * Code moved from the biosensor package.
+
+ -- Karolis Petrauskas <k.petrauskas@gmail.com>  Sun, 04 Mar 2012 16:41:49 +0200
+

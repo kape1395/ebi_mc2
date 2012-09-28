@@ -16,14 +16,15 @@
 
 %%
 %%  @private
-%%  @doc Supervisor governing all simulations running on a particular partition.
-%%  @see bio_ers_queue_mifcl2
+%%  @doc Supervisor governing the fragile part of the queue: ssh channel
+%%  and associated simulation processes (supervisor of them).
+%%  @see ebi_queue_mifcl2
 %%
--module(bio_ers_queue_mifcl2_sim_sup).
+-module(ebi_mc2_part_sup).
 -behaviour(supervisor).
--export([start_link/2, start_sim/2]). % API
+-export([start_link/2, create_sim_sup/3]). % API
 -export([init/1]). % Callbacks
--include("bio_ers_queue_mifcl2.hrl").
+-include("ebi_mc2.hrl").
 
 
 %% =============================================================================
@@ -31,15 +32,22 @@
 %% =============================================================================
 
 %%
+%%  @doc Initialize this supervisor.
 %%
-%%
--spec start_link(pid(), pid()) -> {ok, Supervisor :: pid()}.
-start_link(Queue, SshChan) ->
-    supervisor:start_link(?MODULE, {Queue, SshChan}).
+-spec start_link(#part_cfg{}, pid()) -> {ok, Supervisor :: pid()}.
+start_link(PartCfg, Queue) ->
+    supervisor:start_link(?MODULE, {PartCfg, Queue}).
 
 
-start_sim(Supervisor, Simulation) ->
-    supervisor:start_child(Supervisor, [Simulation]).
+%%
+%%  @doc Create simulations supervisor.
+%%
+-spec create_sim_sup(pid(), pid(), pid()) -> {ok, pid()}.
+create_sim_sup(Supervisor, Queue, SshChan) ->
+    Mod = ebi_queue_mifcl2_sim_sup,
+    Spec = {sim_sup, {Mod, start_link, [Queue, SshChan]}, permanent, brutal_kill, supervisor, [Mod]},
+    supervisor:start_child(Supervisor, Spec).
+
 
 
 %% =============================================================================
@@ -49,14 +57,8 @@ start_sim(Supervisor, Simulation) ->
 %%
 %%  @doc Configure the supervisor.
 %%
-init({Queue, SshChan}) ->
-    Mod = bio_ers_queue_mifcl2_sim,
-    Spec = {sim,
-        {Mod, start_link, [Queue, SshChan]}, % Other params passed from start_sim/2.
-        permanent, brutal_kill, worker, [Mod]
-    },
-    {ok, {
-        {simple_one_for_one, 120, 60},
-        [ Spec ]
-    }}.
+init({PartCfg, Queue}) ->
+    Mod = ebi_queue_mifcl2_ssh_channel,
+    Spec = {ssh_chan, {Mod, start_link, [self(), PartCfg, Queue]}, permanent, brutal_kill, worker, [Mod]}, 
+    {ok, {{one_for_all, 120, 60}, [Spec]}}.
 

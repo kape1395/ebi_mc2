@@ -13,15 +13,15 @@
 % See the License for the specific language governing permissions and
 % limitations under the License.
 %
--module(bio_ers_queue_mifcl2_sim).
+-module(ebi_mc2_sim).
 -behaviour(gen_fsm).
 -export([start_link/3]). % API
 -export([init/2, starting/2]). % FSM States
 -export([init/1, handle_event/3, handle_sync_event/4, handle_info/3, terminate/3, code_change/4]).
--include("bio_ers.hrl").
+-include("ebi.hrl").
 
 -define(SERVER, ?MODULE).
--define(SSH, bio_ers_queue_mifcl2_ssh_chan).
+-define(SSH, ebi_queue_mifcl2_ssh_chan).
 -define(START_TIMEOUT, 10000).
 
 -record(cfg, {dir}).
@@ -50,7 +50,7 @@ start_link(Queue, SshChan, Simulation) ->      % FIXED according to supervisor.
 %%  Here Dir stands for a directory name, where the simulation results should be stored.
 %%
 init({Simulation, SshChannel, Cfg}) ->
-    ID = bio_ers_queue_mifcl2:get_simulation_id(Simulation),
+    ID = ebi_queue_mifcl2:get_simulation_id(Simulation),
     gen_fsm:send_event(self(), run),
     {ok, init, #state{
         id = ID,

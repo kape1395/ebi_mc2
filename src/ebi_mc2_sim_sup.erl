@@ -16,14 +16,14 @@
 
 %%
 %%  @private
-%%  @doc Supervisor governing all the cluster partitions (connectors to them).
-%%  @see bio_ers_queue_mifcl2
+%%  @doc Supervisor governing all simulations running on a particular partition.
+%%  @see ebi_queue_mifcl2
 %%
--module(bio_ers_queue_mifcl2_part_supersup).
+-module(ebi_mc2_sim_sup).
 -behaviour(supervisor).
--export([start_link/2]). % API
+-export([start_link/2, start_sim/2]). % API
 -export([init/1]). % Callbacks
--include("bio_ers_queue_mifcl2.hrl").
+-include("ebi_mc2.hrl").
 
 
 %% =============================================================================
@@ -33,10 +33,13 @@
 %%
 %%
 %%
--spec start_link([#part_cfg{}], pid()) -> {ok, Supervisor :: pid()}.
-start_link(PartCfgs, Queue) ->
-    supervisor:start_link(?MODULE, {PartCfgs, Queue}).
+-spec start_link(pid(), pid()) -> {ok, Supervisor :: pid()}.
+start_link(Queue, SshChan) ->
+    supervisor:start_link(?MODULE, {Queue, SshChan}).
 
+
+start_sim(Supervisor, Simulation) ->
+    supervisor:start_child(Supervisor, [Simulation]).
 
 
 %% =============================================================================
@@ -46,17 +49,14 @@ start_link(PartCfgs, Queue) ->
 %%
 %%  @doc Configure the supervisor.
 %%
-init({PartCfgs, Queue}) ->
-    Mod = bio_ers_queue_mifcl2_part_sup,
-    Spec = fun (PartCfg) ->
-        #part_cfg{name = Name} = PartCfg,
-        {{part_sup, Name},
-            {Mod, start_link, [PartCfg, Queue]},
-            permanent, brutal_kill, supervisor, [Mod]
-        }
-    end, 
+init({Queue, SshChan}) ->
+    Mod = ebi_queue_mifcl2_sim,
+    Spec = {sim,
+        {Mod, start_link, [Queue, SshChan]}, % Other params passed from start_sim/2.
+        permanent, brutal_kill, worker, [Mod]
+    },
     {ok, {
-        {one_for_one, 120, 60},
-        [ Spec(PartCfg) || PartCfg <- PartCfgs ]
+        {simple_one_for_one, 120, 60},
+        [ Spec ]
     }}.
 

@@ -1,10 +1,10 @@
--module(bio_ers_queue_mifcl2_ssh_chan).
+-module(ebi_mc2_ssh_chan).
 -behaviour(ssh_channel).
 -export([start/0, start_link/0, stop/1, check/1, store_config/3]). % API
 -export([submit_simulation/2, delete_simulation/2, cancel_simulation/2, simulation_status/2, simulation_result/2]). % API
 -export([init/1, terminate/2, handle_ssh_msg/2,handle_msg/2]). % Server side ssh_channel?
 -export([handle_call/3, handle_cast/2, code_change/3]).        % Client side ssh_tunnel
--include("bio_ers.hrl").
+-include("ebi.hrl").
 
 -define(TIMEOUT, 10000).
 -record(state, {
@@ -24,25 +24,25 @@
 %%      ????ssh_connection_manager:request(CR, self(), CH, "/users3/karolis/PST/bin/cluster-login", false, <<>>, 0).
 %%
 %% karolis@uosis: .ssh/authorized_keys:
-%%     command="/users3/karolis/PST/bin/cluster-shell",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-rsa ... bio_ers_queue_mif2_ssh@karolis-home
+%%     command="/users3/karolis/PST/bin/cluster-shell",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-rsa ... ebi_queue_mif2_ssh@karolis-home
 %% karolis@home:
-%%     ssh -T -i /home/karolis/GITWORK/kape1395.biosensor.solver-2D/src/bio_ers/etc/ssh/id_rsa uosis.mif.vu.lt
+%%     ssh -T -i /home/karolis/GITWORK/kape1395.biosensor.solver-2D/src/ebi/etc/ssh/id_rsa uosis.mif.vu.lt
 %%
 %% See:
 %%     http://binaries.erlang-solutions.com/R15A/lib/ssh-2.0.8./src/ssh_shell.erl
 %%
 %% Tests:
-%%      rr(bio_ers).
+%%      rr(ebi).
 %%      application:start(crypto), application:start(ssh).
-%%      {ok, PID} = bio_ers_queue_mifcl2_ssh_chan:start_link().
-%%      ok = bio_ers_queue_mifcl2_ssh_chan:check(PID).
+%%      {ok, PID} = ebi_queue_mifcl2_ssh_chan:start_link().
+%%      ok = ebi_queue_mifcl2_ssh_chan:check(PID).
 %%
-%%      Model = bio_ers_model:read_model("test/bio_ers_model_tests-CNT-2D.xml", kp1_xml).
+%%      Model = ebi_model:read_model("test/ebi_model_tests-CNT-2D.xml", kp1_xml).
 %%      #model{definition = ModelDef} = Model.
-%%      ModelId = bio_ers:get_id(Model).
-%%      bio_ers_queue_mifcl2_ssh_chan:store_config(PID, ModelId, ModelDef).
+%%      ModelId = ebi:get_id(Model).
+%%      ebi_queue_mifcl2_ssh_chan:store_config(PID, ModelId, ModelDef).
 %%
-%%      ok = bio_ers_queue_mifcl2_ssh_chan:stop(PID).
+%%      ok = ebi_queue_mifcl2_ssh_chan:stop(PID).
 %%
 
 start() ->
@@ -53,7 +53,7 @@ start_link() ->
 
 start_internal(StartFun) ->
     {ok, CRef} = ssh:connect("uosis.mif.vu.lt", 22, [
-        {user_dir, "/home/karolis/GITWORK/kape1395.biosensor.solver-2D/src/bio_ers/etc/ssh"},
+        {user_dir, "/home/karolis/GITWORK/kape1395.biosensor.solver-2D/src/ebi/etc/ssh"},
         {user, "karolis"},
         {silently_accept_hosts, true},
         {connect_timeout, ?TIMEOUT}
@@ -82,23 +82,23 @@ store_config(Ref, ConfigName, ConfigData) ->
 
 
 submit_simulation(Ref, Simulation) when is_record(Simulation, simulation) ->
-    ssh_channel:cast(Ref, {submit_simulation, Simulation#simulation{id = bio_ers_queue_mifcl2:get_simulation_id(Simulation)}}).
+    ssh_channel:cast(Ref, {submit_simulation, Simulation#simulation{id = ebi_queue_mifcl2:get_simulation_id(Simulation)}}).
 
 
 delete_simulation(Ref, Simulation) ->
-    ssh_channel:cast(Ref, {delete_simulation, bio_ers_queue_mifcl2:get_simulation_id(Simulation)}).
+    ssh_channel:cast(Ref, {delete_simulation, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
 
 
 cancel_simulation(Ref, Simulation) ->
-    ssh_channel:cast(Ref, {cancel_simulation, bio_ers_queue_mifcl2:get_simulation_id(Simulation)}).
+    ssh_channel:cast(Ref, {cancel_simulation, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
 
 
 simulation_status(Ref, Simulation) ->
-    ssh_channel:call(Ref, {simulation_status, bio_ers_queue_mifcl2:get_simulation_id(Simulation)}).
+    ssh_channel:call(Ref, {simulation_status, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
 
 
 simulation_result(Ref, Simulation) ->
-    ssh_channel:call(Ref, {simulation_result, bio_ers_queue_mifcl2:get_simulation_id(Simulation)}).
+    ssh_channel:call(Ref, {simulation_result, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
 
 
 
@@ -172,7 +172,7 @@ handle_cast({submit_simulation = Cmd, Simulation}, State) ->
     CallRef = make_uid(),
     CmdLine = make_cmd(State, CallRef, "submit_simulation", [
         SimulationName,                              % sim_name
-        bio_ers:get_id(Model),                       % cfg_name
+        ebi:get_id(Model),                       % cfg_name
         Partition,                                   % partition
         [param_to_option(Param) || Param <- Params]  % params
     ]),
@@ -370,7 +370,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 make_uid() ->
-    bio_ers:get_id(unique).
+    ebi:get_id(unique).
 
 make_cmd(#state{cmd = Cmd}, Ref, Command, Args) ->
     [Cmd, " ", Ref, " ", Command, " ", [ [" \"", A, "\"" ] || A <- Args ], "\n"].

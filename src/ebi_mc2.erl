@@ -18,34 +18,34 @@
 %%  @doc Queue implementation for delegating calculations to the "MIF cluster v2".
 %%  A structure of this module is the following:
 %%  ``` OUTDATED:
-%%  + bio_ers_queue_mifcl2_sup.erl (main supervisor)
+%%  + ebi_queue_mifcl2_sup.erl (main supervisor)
 %%    |       Supervisor for all the queue implementation (mifcl2).
 %%    |
-%%    + bio_ers_queue_mifcl2.erl  (api)
+%%    + ebi_queue_mifcl2.erl  (api)
 %%    |       Interfafe module for all the queue implementation.
 %%    |       A user should invoke functions in this module only.
 %%    |
-%%    +bio_ers_queue_mifcl2_ssh_sup.erl (ssh supervisor)
+%%    +ebi_queue_mifcl2_ssh_sup.erl (ssh supervisor)
 %%      |     Supervisor for the ssh channel.
 %%      |     It is needed becase ssh channel is crashing for some reason
 %%      |     after some time of inactivity.
 %%      |
-%%      + bio_ers_queue_mifcl2_ssh_chan.erl (ssh channel)
+%%      + ebi_queue_mifcl2_ssh_chan.erl (ssh channel)
 %%            Implementation of the communication via SSH.
 %%  '''
 %%
 %%  The main task for this module (apart from being interface) is to store
-%%  all ongoing calls for the case, if the {@link bio_ers_queue_mifcl2_ssh_chan. SSH channel}
+%%  all ongoing calls for the case, if the {@link ebi_queue_mifcl2_ssh_chan. SSH channel}
 %%  is restarted and should redo the operations, that were performed at that time.
 %%
--module(bio_ers_queue_mifcl2).
--behaviour(bio_ers_queue).
+-module(ebi_mc2).
+-behaviour(ebi_queue).
 -export([start_link/3]). % API
 -export([handle_submit/2, handle_delete/2, handle_cancel/2, handle_status/2, handle_result/2]). % CB
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2]). % CB
 -export([get_simulation_id/1]).
--include("bio_ers.hrl").
--include("bio_ers_queue_mifcl2.hrl").
+-include("ebi.hrl").
+-include("ebi_mc2.hrl").
 
 
 -record(state, {cfg = #cfg{}, running = [], pending = []}).
@@ -60,7 +60,7 @@
 %%  Configuration in its external form should be passed here as the `ExternalCfg'
 %%  parameter, and its structure should be as follows.
 %%  ````
-%%      {bio_ers_queue_mifcl2, QueueName, [
+%%      {ebi_queue_mifcl2, QueueName, [
 %%          {partition, PartitionName,
 %%              SshHost, SshPort, SshUser, LocalUserDir,
 %%              ClusterCommand, ClusterPartition,
@@ -72,7 +72,7 @@
 %%
 -spec start_link(term(), term(), pid()) -> {ok, pid()} | term().
 start_link(Name, ExternalCfg, Supervisor) ->
-    bio_ers_queue:start_link(Name, ?MODULE, {Name, ExternalCfg, Supervisor}).
+    ebi_queue:start_link(Name, ?MODULE, {Name, ExternalCfg, Supervisor}).
 
 
 
@@ -155,7 +155,7 @@ handle_cast(_Message, State) ->
 %%
 handle_info({configure_supervisor, Supervisor}, State = #state{cfg = Cfg}) ->
     #cfg{partitions = PartitionCfgs} = Cfg,
-    bio_ers_queue_mifcl2_sup:create_partitions(Supervisor, PartitionCfgs, self()),
+    ebi_queue_mifcl2_sup:create_partitions(Supervisor, PartitionCfgs, self()),
     {noreply, State}.
 
 
@@ -191,7 +191,7 @@ mk_part_cfg(ExternalPartitionCfg) ->
 %%
 get_simulation_id(Simulation) when is_record(Simulation, simulation) ->
     case Simulation#simulation.id of
-        undefined -> bio_ers:get_id(Simulation);
+        undefined -> ebi:get_id(Simulation);
         SimId     -> SimId
     end;
 get_simulation_id(SimulationId) when is_list(SimulationId) ->

@@ -3,5 +3,7 @@
 .project
 .settings/
 logs/
-src/ebi_cm2.app.src
+deps/
+ebin/
+src/ebi_mc2.app.src
 

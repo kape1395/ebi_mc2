@@ -16,14 +16,14 @@
 
 %%
 %%  @private
-%%  @doc Supervisor for the {@link bio_ers_queue_mifcl2} and related modules.
-%%  @see bio_ers_queue_mifcl2
+%%  @doc Supervisor for the {@link ebi_queue_mifcl2} and related modules.
+%%  @see ebi_queue_mifcl2
 %%
--module(bio_ers_queue_mifcl2_sup).
+-module(ebi_mc2_sup).
 -behaviour(supervisor).
 -export([start_link/2, create_partitions/3]). % API
 -export([init/1]). % Callbacks
--include("bio_ers_queue_mifcl2.hrl").
+-include("ebi_mc2.hrl").
 
 %% =============================================================================
 %%  API functions.
@@ -32,7 +32,7 @@
 %%
 %%  @doc Start and link this supervisor.
 %%  `Name' is used to register the queue process and
-%%  `External' is used as a configuration in an external form (see {@link bio_ers_queue_mifcl2}).
+%%  `External' is used as a configuration in an external form (see {@link ebi_queue_mifcl2}).
 %%
 -spec start_link({local, atom()}, {}) -> {ok, pid()} | term().
 start_link(Name, ExternalCfg) ->
@@ -44,7 +44,7 @@ start_link(Name, ExternalCfg) ->
 %%
 -spec create_partitions(pid(), [#part_cfg{}], pid()) -> {ok, pid()} | term().
 create_partitions(Supervisor, PartCfgs, Queue) ->
-    Mod = bio_ers_queue_mifcl2_part_supersup,
+    Mod = ebi_queue_mifcl2_part_supersup,
     Spec = {
         part_supersup,
         {Mod, start_link, [PartCfgs, Queue]},
@@ -62,7 +62,7 @@ create_partitions(Supervisor, PartCfgs, Queue) ->
 %%  @doc Configures this supervisor (callback).
 %%
 init({Name, ExternalCfg}) ->
-    QUE = bio_ers_queue_mifcl2,
+    QUE = ebi_queue_mifcl2,
     QUESpec = {queue, {QUE, start_link, [Name, ExternalCfg, self()]}, permanent, brutal_kill, worker, [QUE]}, 
     {ok, {{one_for_all, 1, 60}, [QUESpec]}}.
 

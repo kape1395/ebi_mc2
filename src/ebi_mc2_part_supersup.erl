@@ -16,15 +16,14 @@
 
 %%
 %%  @private
-%%  @doc Supervisor governing the fragile part of the queue: ssh channel
-%%  and associated simulation processes (supervisor of them).
-%%  @see bio_ers_queue_mifcl2
+%%  @doc Supervisor governing all the cluster partitions (connectors to them).
+%%  @see ebi_queue_mifcl2
 %%
--module(bio_ers_queue_mifcl2_part_sup).
+-module(ebi_mc2_part_supersup).
 -behaviour(supervisor).
--export([start_link/2, create_sim_sup/3]). % API
+-export([start_link/2]). % API
 -export([init/1]). % Callbacks
--include("bio_ers_queue_mifcl2.hrl").
+-include("ebi_mc2.hrl").
 
 
 %% =============================================================================
@@ -32,21 +31,11 @@
 %% =============================================================================
 
 %%
-%%  @doc Initialize this supervisor.
 %%
--spec start_link(#part_cfg{}, pid()) -> {ok, Supervisor :: pid()}.
-start_link(PartCfg, Queue) ->
-    supervisor:start_link(?MODULE, {PartCfg, Queue}).
-
-
 %%
-%%  @doc Create simulations supervisor.
-%%
--spec create_sim_sup(pid(), pid(), pid()) -> {ok, pid()}.
-create_sim_sup(Supervisor, Queue, SshChan) ->
-    Mod = bio_ers_queue_mifcl2_sim_sup,
-    Spec = {sim_sup, {Mod, start_link, [Queue, SshChan]}, permanent, brutal_kill, supervisor, [Mod]},
-    supervisor:start_child(Supervisor, Spec).
+-spec start_link([#part_cfg{}], pid()) -> {ok, Supervisor :: pid()}.
+start_link(PartCfgs, Queue) ->
+    supervisor:start_link(?MODULE, {PartCfgs, Queue}).
 
 
 
@@ -57,8 +46,17 @@ create_sim_sup(Supervisor, Queue, SshChan) ->
 %%
 %%  @doc Configure the supervisor.
 %%
-init({PartCfg, Queue}) ->
-    Mod = bio_ers_queue_mifcl2_ssh_channel,
-    Spec = {ssh_chan, {Mod, start_link, [self(), PartCfg, Queue]}, permanent, brutal_kill, worker, [Mod]}, 
-    {ok, {{one_for_all, 120, 60}, [Spec]}}.
+init({PartCfgs, Queue}) ->
+    Mod = ebi_queue_mifcl2_part_sup,
+    Spec = fun (PartCfg) ->
+        #part_cfg{name = Name} = PartCfg,
+        {{part_sup, Name},
+            {Mod, start_link, [PartCfg, Queue]},
+            permanent, brutal_kill, supervisor, [Mod]
+        }
+    end, 
+    {ok, {
+        {one_for_one, 120, 60},
+        [ Spec(PartCfg) || PartCfg <- PartCfgs ]
+    }}.
 
