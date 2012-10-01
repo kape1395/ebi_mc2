@@ -1,4 +1,27 @@
--module(ebi_mc2_ssh_chan).
+%
+% Copyright 2012 Karolis Petrauskas
+%
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+%
+%     http://www.apache.org/licenses/LICENSE-2.0
+%
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+%
+
+%%  @doc
+%%  @private
+%%  This module implements actual communication with the cluster via SSH.
+%%  The following are the main tasks for this module:
+%%    * Forward the `submit`, `delete`, `cancel` and `result` commans to the cluster.
+%%    * Periodically get status of the cluster and send it to the queue.
+%%
+-module(ebi_mc2_cluster).
 -behaviour(ssh_channel).
 -export([start/0, start_link/0, stop/1, check/1, store_config/3]). % API
 -export([submit_simulation/2, delete_simulation/2, cancel_simulation/2, simulation_status/2, simulation_result/2]). % API

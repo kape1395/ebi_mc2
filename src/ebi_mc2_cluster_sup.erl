@@ -16,12 +16,15 @@
 
 %%
 %%  @private
-%%  @doc Supervisor governing all simulations running on a particular partition.
+%%  @doc Supervisor governing the cluster connections.
+%%  They should be considered fragile. The server dicsonnects the connections from
+%%  time to time. The ssh_channel sometimes hangs till first call, and then fails after
+%%  some timeout.
 %%  @see ebi_queue_mifcl2
 %%
--module(ebi_mc2_sim_sup).
+-module(ebi_mc2_cluster_sup).
 -behaviour(supervisor).
--export([start_link/2, start_sim/2]). % API
+-export([start_link/1]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
 
@@ -31,32 +34,31 @@
 %% =============================================================================
 
 %%
+%%  @doc Initialize this supervisor.
 %%
-%%
--spec start_link(pid(), pid()) -> {ok, Supervisor :: pid()}.
-start_link(Queue, SshChan) ->
-    supervisor:start_link(?MODULE, {Queue, SshChan}).
+-spec start_link([#config_cluster{}]) ->
+        {ok, pid()} |
+        term().
+start_link(Clusters) ->
+    supervisor:start_link(?MODULE, {Clusters}).
 
-
-start_sim(Supervisor, Simulation) ->
-    supervisor:start_child(Supervisor, [Simulation]).
 
 
 %% =============================================================================
-%%  Callbacks.
+%%  Callbacks for supervisor.
 %% =============================================================================
 
 %%
 %%  @doc Configure the supervisor.
 %%
-init({Queue, SshChan}) ->
-    Mod = ebi_queue_mifcl2_sim,
-    Spec = {sim,
-        {Mod, start_link, [Queue, SshChan]}, % Other params passed from start_sim/2.
-        permanent, brutal_kill, worker, [Mod]
-    },
-    {ok, {
-        {simple_one_for_one, 120, 60},
-        [ Spec ]
-    }}.
+init({Clusters}) ->
+    Module = ebi_mc2_cluster,
+    SpecFun = fun (C = #config_cluster{name = CN}) ->
+        {CN,
+            {Module, start_link, [C]},
+            permanent, brutal_kill, worker, [Module]
+        }
+    end,
+    Specs = [ SpecFun(C) || C <- Clusters], 
+    {ok, {{one_for_all, 120, 60}, Specs}}.
 

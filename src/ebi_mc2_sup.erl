@@ -16,38 +16,65 @@
 
 %%
 %%  @private
-%%  @doc Supervisor for the {@link ebi_queue_mifcl2} and related modules.
-%%  @see ebi_queue_mifcl2
+%%  @doc Main Supervisor for the {@link ebi_mc2} queue and related modules.
+%%  @see ebi_mc2
 %%
 -module(ebi_mc2_sup).
 -behaviour(supervisor).
--export([start_link/2, create_partitions/3]). % API
+-export([start_link_spec/1, start_link/1, add_cluster_sup/2, add_simulation_sup/1]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
+
 
 %% =============================================================================
 %%  API functions.
 %% =============================================================================
 
+
+%%
+%%
+%%
+start_link_spec(Config = #config{name = Name}) ->
+    {Name,
+        {?MODULE, start_link, [Config]},
+        permanent, brutal_kill, supervisor, [?MODULE]
+    }.
+
+
 %%
 %%  @doc Start and link this supervisor.
 %%  `Name' is used to register the queue process and
-%%  `External' is used as a configuration in an external form (see {@link ebi_queue_mifcl2}).
+%%  `Args' is used as a configuration for it (see {@link ebi_mc2_queue}).
 %%
--spec start_link({local, atom()}, {}) -> {ok, pid()} | term().
-start_link(Name, ExternalCfg) ->
-    supervisor:start_link(?MODULE, {Name, ExternalCfg}).
+start_link(Config) ->
+    supervisor:start_link(?MODULE, {Config}).
 
 
 %%
-%% @doc Create SSH_SUP and pass the queue PID to it.
+%%  @doc Add a cluster (ssh channel) supervisor.
 %%
--spec create_partitions(pid(), [#part_cfg{}], pid()) -> {ok, pid()} | term().
-create_partitions(Supervisor, PartCfgs, Queue) ->
-    Mod = ebi_queue_mifcl2_part_supersup,
-    Spec = {
-        part_supersup,
-        {Mod, start_link, [PartCfgs, Queue]},
+-spec add_cluster_sup(pid(), [#config_cluster{}]) ->
+        {ok, pid()} |
+        term().
+add_cluster_sup(Supervisor, Clusters) ->
+    Mod = ebi_mc2_cluster_sup,
+    Spec = {Mod,
+        {Mod, start_link, [Clusters]},
+        permanent, brutal_kill, supervisor, [Mod]
+    }, 
+    supervisor:start_child(Supervisor, Spec).
+
+
+%%
+%%  @doc Add a supervisor for the simulations.
+%%
+-spec add_simulation_sup(pid()) ->
+        {ok, pid()} |
+        term().
+add_simulation_sup(Supervisor) ->
+    Mod = ebi_mc2_simulation_sup,
+    Spec = {Mod,
+        {Mod, start_link, []},
         permanent, brutal_kill, supervisor, [Mod]
     }, 
     supervisor:start_child(Supervisor, Spec).
@@ -55,14 +82,17 @@ create_partitions(Supervisor, PartCfgs, Queue) ->
 
 
 %% =============================================================================
-%%  Callbacks.
+%%  Callbacks for supervisor.
 %% =============================================================================
 
 %%
-%%  @doc Configures this supervisor (callback).
+%%  @doc Configures this supervisor.
 %%
-init({Name, ExternalCfg}) ->
-    QUE = ebi_queue_mifcl2,
-    QUESpec = {queue, {QUE, start_link, [Name, ExternalCfg, self()]}, permanent, brutal_kill, worker, [QUE]}, 
-    {ok, {{one_for_all, 1, 60}, [QUESpec]}}.
+init({Config}) ->
+    Mod = ebi_mc2_queue,
+    Spec = {Mod,
+        {Mod, start_link, [Config, self()]},
+        permanent, brutal_kill, worker, [Mod]
+    }, 
+    {ok, {{one_for_all, 100, 60}, [Spec]}}.
 

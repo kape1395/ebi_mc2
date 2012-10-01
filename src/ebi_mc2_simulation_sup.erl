@@ -16,13 +16,12 @@
 
 %%
 %%  @private
-%%  @doc Supervisor governing the fragile part of the queue: ssh channel
-%%  and associated simulation processes (supervisor of them).
-%%  @see ebi_queue_mifcl2
+%%  @doc Supervisor governing all the running simulations on the queue.
+%%  @see ebi_mc2_queue
 %%
--module(ebi_mc2_part_sup).
+-module(ebi_mc2_simulation_sup).
 -behaviour(supervisor).
--export([start_link/2, create_sim_sup/3]). % API
+-export([start_link/0, start_simulation/5]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
 
@@ -32,21 +31,24 @@
 %% =============================================================================
 
 %%
-%%  @doc Initialize this supervisor.
+%%  @doc Start this supervisor.
 %%
--spec start_link(#part_cfg{}, pid()) -> {ok, Supervisor :: pid()}.
-start_link(PartCfg, Queue) ->
-    supervisor:start_link(?MODULE, {PartCfg, Queue}).
+-spec start_link() -> {ok, pid()} | term().
+start_link() ->
+    supervisor:start_link(?MODULE, {}).
 
 
 %%
-%%  @doc Create simulations supervisor.
+%%  @doc Add new simulation.
+%%  Only the simulation ID and the colaborator process ids should
+%%  be passed here. The actual simulation definition will be retrieved
+%%  from the queue on simulation startup (or restart).
 %%
--spec create_sim_sup(pid(), pid(), pid()) -> {ok, pid()}.
-create_sim_sup(Supervisor, Queue, SshChan) ->
-    Mod = ebi_queue_mifcl2_sim_sup,
-    Spec = {sim_sup, {Mod, start_link, [Queue, SshChan]}, permanent, brutal_kill, supervisor, [Mod]},
-    supervisor:start_child(Supervisor, Spec).
+-spec start_simulation(pid(), string(), pid(), atom(), string()) ->
+        {ok, pid()} |
+        term().
+start_simulation(Supervisor, SimulationId, Queue, Cluster, Partition) ->
+    supervisor:start_child(Supervisor, [SimulationId, Queue, Cluster, Partition]).
 
 
 
@@ -57,8 +59,11 @@ create_sim_sup(Supervisor, Queue, SshChan) ->
 %%
 %%  @doc Configure the supervisor.
 %%
-init({PartCfg, Queue}) ->
-    Mod = ebi_queue_mifcl2_ssh_channel,
-    Spec = {ssh_chan, {Mod, start_link, [self(), PartCfg, Queue]}, permanent, brutal_kill, worker, [Mod]}, 
-    {ok, {{one_for_all, 120, 60}, [Spec]}}.
+init({}) ->
+    Mod = ebi_mc2_simulation,
+    Spec = {Mod,
+        {Mod, start_link, []},
+        permanent, brutal_kill, worker, [Mod]
+    },
+    {ok, {{simple_one_for_one, 120, 60}, [Spec]}}.
 
