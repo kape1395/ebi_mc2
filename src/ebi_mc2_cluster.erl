@@ -24,7 +24,7 @@
 -module(ebi_mc2_cluster).
 -behaviour(ssh_channel).
 -export([start/0, start_link/0, stop/1, check/1, store_config/3]). % API
--export([submit_simulation/2, delete_simulation/2, cancel_simulation/2, simulation_status/2, simulation_result/2]). % API
+-export([submit_simulation/3, delete_simulation/2, cancel_simulation/2, simulation_status/2, simulation_result/2]). % API
 -export([init/1, terminate/2, handle_ssh_msg/2,handle_msg/2]). % Server side ssh_channel?
 -export([handle_call/3, handle_cast/2, code_change/3]).        % Client side ssh_tunnel
 -include("ebi.hrl").
@@ -104,24 +104,28 @@ store_config(Ref, ConfigName, ConfigData) ->
     ssh_channel:call(Ref, {store_config, ConfigName, ConfigData}).
 
 
-submit_simulation(Ref, Simulation) when is_record(Simulation, simulation) ->
-    ssh_channel:cast(Ref, {submit_simulation, Simulation#simulation{id = ebi_queue_mifcl2:get_simulation_id(Simulation)}}).
+submit_simulation(Ref, Partition, Simulation) when is_record(Simulation, simulation) ->
+    ssh_channel:cast(Ref, {
+        submit_simulation,
+        Simulation#simulation{id = ebi_queue_mifcl2:get_simulation_id(Simulation)},
+        Partition
+    }).
 
 
-delete_simulation(Ref, Simulation) ->
-    ssh_channel:cast(Ref, {delete_simulation, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
+delete_simulation(Ref, SimulationId) ->
+    ssh_channel:cast(Ref, {delete_simulation, SimulationId}).
 
 
-cancel_simulation(Ref, Simulation) ->
-    ssh_channel:cast(Ref, {cancel_simulation, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
+cancel_simulation(Ref, SimulationId) ->
+    ssh_channel:cast(Ref, {cancel_simulation, SimulationId}).
 
 
-simulation_status(Ref, Simulation) ->
-    ssh_channel:call(Ref, {simulation_status, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
+simulation_status(Ref, SimulationId) ->
+    ssh_channel:call(Ref, {simulation_status, SimulationId}).
 
-
-simulation_result(Ref, Simulation) ->
-    ssh_channel:call(Ref, {simulation_result, ebi_queue_mifcl2:get_simulation_id(Simulation)}).
+-spec simulation_result(atom(), string()) -> {ok, SimulationId :: list(), ResponseLines :: list()}.
+simulation_result(Ref, SimulationId) ->
+    ssh_channel:call(Ref, {simulation_result, SimulationId}).
 
 
 
@@ -189,9 +193,9 @@ handle_cast(stop, State = #state{cref = CRef, chan = Chan}) ->
     ssh_connection:send_eof(CRef, Chan),
     {stop, normal, State};
 
-handle_cast({submit_simulation = Cmd, Simulation}, State) ->
+handle_cast({submit_simulation = Cmd, Simulation, Partition}, State) ->
     #simulation{id = SimulationName, model = Model, params = Params} = Simulation,
-    #state{cref = CRef, chan = Chan, part = Partition} = State,
+    #state{cref = CRef, chan = Chan} = State,
     CallRef = make_uid(),
     CmdLine = make_cmd(State, CallRef, "submit_simulation", [
         SimulationName,                              % sim_name

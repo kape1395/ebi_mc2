@@ -13,6 +13,7 @@
 % See the License for the specific language governing permissions and
 % limitations under the License.
 %
+-include("ebi.hrl").
 
 %%
 %%  Internal data structures for this application.
@@ -33,7 +34,8 @@
 }).
 -record(config, {
     name            :: atom(),
-    clusters = []   :: [#config_cluster{}]
+    clusters = []   :: [#config_cluster{}],
+    result_dir      :: string()
 }).
 
 
@@ -41,10 +43,10 @@
 %%
 %%
 -record(ebi_mc2_sim, {
-    id              :: string(),
-    sim,
-    status          :: atom(),
-    cmds = []       :: [atom()]
+    simulation_id   :: string(),        % Simulation ID
+    simulation      :: #simulation{},   % Simulation definition
+    state_name      :: atom(),          % State of the FSM governing the simulation.
+    commands = []   :: [atom()]         % Stack of commands sent to to this simulation.
 }).
 
 
