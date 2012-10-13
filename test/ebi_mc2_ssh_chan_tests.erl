@@ -5,7 +5,10 @@
 
 %
 % rr(ebi).
-% application:start(crypto), application:start(ssh).
+%
+% [application:start(M) || M <- [crypto, ssh, mnesia, xmerl, ebi, ebi_mc2]].
+%
+% application:start(crypto), application:start(ssh), application:start(mnesia).
 % {ok, PID} = ebi_queue_mifcl2_ssh_chan:start_link().
 % ok = ebi_queue_mifcl2_ssh_chan:check(PID).
 % 

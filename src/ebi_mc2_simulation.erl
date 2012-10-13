@@ -45,11 +45,9 @@
 -module(ebi_mc2_simulation).
 -behaviour(gen_fsm).
 -export([ % API
-    start_link/4,
+    start_link/2,
     cancel/1,
-    status_update/4,
-    terminated/1,
-    status/1
+    status_update/4
 ]).
 -export([ % Callbacks for FSM
     init/1,
@@ -83,9 +81,9 @@
 %%
 %%
 %%
--spec start_link(string(), pid(), atom(), atom()) -> {ok, pid()} | term().
-start_link(SimulationId, Queue, Cluster, Partition) ->
-    gen_fsm:start_link(?MODULE, {SimulationId, Queue, Cluster, Partition}, []).
+-spec start_link(string(), pid()) -> {ok, pid()} | term().
+start_link(SimulationId, Queue) ->
+    gen_fsm:start_link(?MODULE, {SimulationId, Queue}, []).
 
 
 %%
@@ -102,38 +100,6 @@ cancel(PID) ->
 status_update(PID, SimulationId, RuntimeStatus, FilesystemStatus) ->
     ok = gen_fsm:send_all_state_event(PID, {cluster_status, SimulationId, RuntimeStatus, FilesystemStatus}),
     ok.
-
-
-%%
-%%  Tells, if the simulation is terminated by its status.
-%%
-terminated(StateName) ->
-    case StateName of
-        completed -> true;
-        canceled -> true;
-        failed -> true;
-        _ -> false
-    end.
-
-
-%%
-%%  Converts local state names to the global ones, as defined in ebi.hrl.
-%%
-status(StateName) ->
-    case StateName of
-        initializing            -> running;
-        starting                -> running;
-        running                 -> running;
-        canceling               -> running;
-        cleaningup_restart      -> running;
-        cleaningup_completed    -> running;
-        cleaningup_canceled     -> running;
-        cleaningup_failed       -> running;
-        completed               -> completed;
-        canceled                -> canceled;
-        failed                  -> failed;
-        undefined               -> undefined
-    end.
 
 
 
@@ -159,14 +125,14 @@ status(StateName) ->
 %%
 %%  @doc Initializes the FSM.
 %%
-init({SimulationId, Queue, Cluster, Partition}) ->
+init({SimulationId, Queue}) ->
     gen_fsm:send_event(self(), {initialize}),
     {ok, initializing, #state{
         simulation_id = SimulationId,
         simulation = undefined,
         queue = Queue,
-        cluster = Cluster,
-        partition = Partition
+        cluster = undefined,
+        partition = undefined
     }}.
 
 
@@ -182,10 +148,11 @@ initializing({initialize}, State) ->
     {ok, EBISim} = ebi_mc2_queue:register_simulation(Queue, SimulationId, self()),
     #ebi_mc2_sim{
         simulation = Simulation,
-        state_name = SavedStateName,
-        commands = Commands
+        state = {_, SavedStateName, _},
+        commands = Commands,
+        target = {Cluster, Partition}
     } = EBISim,
-    FullState = State#state{simulation = Simulation},
+    FullState = State#state{simulation = Simulation, cluster = Cluster, partition = Partition},
     case Commands of
         [] -> ok;
         [LastCommand | _] -> gen_fsm:send_event(self(), LastCommand)
@@ -236,7 +203,10 @@ handle_event({cluster_status, SimulationId, RTStatus, FSStatus}, StateName, Stat
     RT = {_RTStatusCode, _RTStatusGroup} = slurm_job_status(RTStatus),
     FS = {_FSStatusCode, _FSStatusGroup} = slurm_sim_status(FSStatus),
     Action = case {StateName, RT, FS} of
-        {starting,  {_, undefined}, _}              -> ignore;
+        {starting,  {_, undefined}, {_, undefined}} -> ignore;
+        {starting,  {_, undefined}, {_, started}}   -> clean_restart;
+        {starting,  {_, undefined}, {compleetd, _}} -> {finalize, completed};
+        {starting,  {_, undefined}, {failed, _}}    -> {finalize, failed};
         {starting,  {_, running},   _}              -> {next_state, running, StateData};
         {starting,  {_, failed},    _}              -> {finalize, failed};
         {starting,  {_, completed}, _}              -> {finalize, completed};
@@ -262,17 +232,17 @@ handle_event({cluster_status, SimulationId, RTStatus, FSStatus}, StateName, Stat
     end,
     case Action of
         {next_state, NextState, _}    ->
-            ok = ebi_mc2_queue:simulation_status_updated(Queue, SimulationId, NextState),
+            ok = do_report_status(Queue, SimulationId, NextState),
             Action;
         {next_state, NextState, _, _} ->
-            ok = ebi_mc2_queue:simulation_status_updated(Queue, SimulationId, NextState),
+            ok = do_report_status(Queue, SimulationId, NextState),
             Action;
         {finalize, ResultStatus} ->
             {ok, SimulationId, ResultData} = ebi_mc2_cluster:simulation_result(Cluster, SimulationId),
             ok = ebi_mc2_queue:simulation_result_generated(Queue, SimulationId, ResultStatus, ResultData),
             do_cleanup(StateData, ResultStatus);
         {finished, TerminalState} ->
-            ok = ebi_mc2_queue:simulation_status_updated(Queue, SimulationId, TerminalState),
+            ok = do_report_status(Queue, SimulationId, TerminalState),
             ok = ebi_mc2_queue:unregister_simulation(Queue, SimulationId),
             {stop, normal, StateData};
         ignore ->
@@ -325,7 +295,7 @@ do_start(StateData) ->
     } = StateData,
     NextState = starting,
     ok = ebi_mc2_cluster:submit_simulation(Cluster, Partition, Simulation),
-    ok = ebi_mc2_queue:simulation_status_updated(Queue, SimulationId, NextState),
+    ok = do_report_status(Queue, SimulationId, NextState),
     {next_state, NextState, StateData, ?DEFAUL_TIMEOUT}.
 
 
@@ -341,7 +311,7 @@ do_cleanup(StateData, NextStateName) ->
         canceled  -> cleaningup_canceled;
         failed    -> cleaningup_failed
     end,
-    ok = ebi_mc2_queue:simulation_status_updated(Queue, SimulationId, CleanupState),
+    ok = do_report_status(Queue, SimulationId, CleanupState),
     {next_state, CleanupState, StateData}.
 
 
@@ -352,8 +322,49 @@ do_cancel(StateData) ->
     #state{simulation_id = SimulationId, cluster = Cluster, queue = Queue} = StateData,
     NextState = canceling,
     ok = ebi_mc2_cluster:cancel_simulation(Cluster, SimulationId),
-    ok = ebi_mc2_queue:simulation_status_updated(Queue, SimulationId, NextState),
+    ok = do_report_status(Queue, SimulationId, NextState),
     {next_state, NextState, StateData, ?DEFAUL_TIMEOUT}.
+
+
+%%
+%%
+%%
+do_report_status(Queue, SimulationId, StateName) ->
+    ok = ebi_mc2_queue:simulation_status_updated(
+        Queue, SimulationId,
+        {external_state(StateName), StateName, terminal_state(StateName)}
+    ).
+
+%%
+%%  Tells, if the simulation is terminated by its status.
+%%
+terminal_state(StateName) ->
+    case StateName of
+        completed -> true;
+        canceled -> true;
+        failed -> true;
+        _ -> false
+    end.
+
+
+%%
+%%  Converts local state names to the global ones, as defined in ebi.hrl.
+%%
+external_state(StateName) ->
+    case StateName of
+        initializing            -> running;
+        starting                -> running;
+        running                 -> running;
+        canceling               -> running;
+        cleaningup_restart      -> running;
+        cleaningup_completed    -> running;
+        cleaningup_canceled     -> running;
+        cleaningup_failed       -> running;
+        completed               -> completed;
+        canceled                -> canceled;
+        failed                  -> failed;
+        undefined               -> undefined
+    end.
 
 
 %%

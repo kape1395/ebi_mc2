@@ -43,10 +43,11 @@
 %%
 %%
 -record(ebi_mc2_sim, {
-    simulation_id   :: string(),        % Simulation ID
-    simulation      :: #simulation{},   % Simulation definition
-    state_name      :: atom(),          % State of the FSM governing the simulation.
-    commands = []   :: [atom()]         % Stack of commands sent to to this simulation.
+    simulation_id   :: string(),                                % Simulation ID
+    simulation      :: #simulation{},                           % Simulation definition
+    state           :: {Global::atom(), Local::atom(), Terminal::boolean()}, % State of thesimulation.
+    commands = []   :: [atom()],                                % Stack of commands sent to to this simulation.
+    target          :: {Cluster :: atom(), Partition :: atom()} % Where the simulation should be run.
 }).
 
 
