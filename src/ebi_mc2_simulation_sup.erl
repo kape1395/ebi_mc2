@@ -21,7 +21,7 @@
 %%
 -module(ebi_mc2_simulation_sup).
 -behaviour(supervisor).
--export([start_link/0, start_simulation/5]). % API
+-export([start_link/0, start_simulation/3]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
 
@@ -44,11 +44,11 @@ start_link() ->
 %%  be passed here. The actual simulation definition will be retrieved
 %%  from the queue on simulation startup (or restart).
 %%
--spec start_simulation(pid(), string(), pid(), atom(), string()) ->
+-spec start_simulation(pid(), string(), pid()) ->
         {ok, pid()} |
         term().
-start_simulation(Supervisor, SimulationId, Queue, Cluster, Partition) ->
-    supervisor:start_child(Supervisor, [SimulationId, Queue, Cluster, Partition]).
+start_simulation(Supervisor, SimulationId, Queue) ->
+    supervisor:start_child(Supervisor, [SimulationId, Queue]).
 
 
 

@@ -227,7 +227,7 @@ init({Config = #config{clusters = Clusters, result_dir = ResultDir}, Supervisor}
     end,
     State = #state{
         sim_sup     = undefined,
-        store       = ets:new(ebi_mc2_queue_store, [private]),
+        store       = ebi_mc2_queue_store:init(),
         running     = ets:new(ebi_mc2_queue_running, [private]),
         targets     = lists:flatmap(CollectTargets, Clusters),
         result_dir  = ResultDir
@@ -261,9 +261,11 @@ handle_submit(Simulation, State = #state{store = Store}) ->
 %%
 handle_cancel(Simulation, State) ->
     SimulationId = get_simulation_id(Simulation),
-    {ok, PID} = sim_running_get(State#state.running, SimulationId),
     ok = ebi_mc2_queue_store:add_command(State#state.store, SimulationId, cancel),
-    ok = ebi_mc2_simulation:cancel(PID),
+    ok = case sim_running_get(State#state.running, SimulationId) of
+        {ok, PID} -> ok = ebi_mc2_simulation:cancel(PID);
+        {error, not_found} -> ok
+    end,
     {ok, State}.
 
 
