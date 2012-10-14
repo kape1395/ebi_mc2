@@ -2,7 +2,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("ebi_mc2.hrl").
 
-startup_test() ->
+%%
+%%  Simulation started and completed.
+%%
+simple_test() ->
     SID = "startup_test::SID",
     Queue = 'startup_test::Queue',
     Cluster = 'startup_test::Cluster',

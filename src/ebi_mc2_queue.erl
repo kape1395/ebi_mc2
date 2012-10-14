@@ -248,7 +248,8 @@ terminate(_Reason, _State) ->
 %%    spawns new simulation process. 
 %%
 handle_submit(Simulation, State = #state{store = Store}) ->
-    ok = sim_store_add(Store, Simulation),
+    SimulationId = get_simulation_id(Simulation),
+    ok = ebi_mc2_queue_store:add(Store, Simulation#simulation{id = SimulationId}),
     {ok, NewState} = start_pending_simulations(State),
     {ok, NewState}.
 
@@ -261,7 +262,7 @@ handle_submit(Simulation, State = #state{store = Store}) ->
 handle_cancel(Simulation, State) ->
     SimulationId = get_simulation_id(Simulation),
     {ok, PID} = sim_running_get(State#state.running, SimulationId),
-    ok = sim_store_add_command(State#state.store, SimulationId, cancel),
+    ok = ebi_mc2_queue_store:add_command(State#state.store, SimulationId, cancel),
     ok = ebi_mc2_simulation:cancel(PID),
     {ok, State}.
 
@@ -271,10 +272,10 @@ handle_cancel(Simulation, State) ->
 %%
 handle_delete(Simulation, State = #state{store = Store, result_dir = ResultDir}) ->
     SimulationId = get_simulation_id(Simulation),
-    {ok, #ebi_mc2_sim{state = {_, _, Terminal}}} = sim_store_get(Store, SimulationId),
+    {ok, #ebi_mc2_sim{state = {_, _, Terminal}}} = ebi_mc2_queue_store:get(Store, SimulationId),
     case Terminal of
         true ->
-            ok = sim_store_delete(Store, SimulationId),
+            ok = ebi_mc2_queue_store:delete(Store, SimulationId),
             ResultFile = result_file(SimulationId, ResultDir),
             case file:delete(ResultFile) of
                 ok -> ok;
@@ -291,7 +292,7 @@ handle_delete(Simulation, State = #state{store = Store, result_dir = ResultDir})
 %%
 handle_result(Simulation, State = #state{store = Store, result_dir = ResultDir}) ->
     SimulationId = get_simulation_id(Simulation),
-    {ok, #ebi_mc2_sim{state = {_, _, Terminal}}} = sim_store_get(Store, SimulationId),
+    {ok, #ebi_mc2_sim{state = {_, _, Terminal}}} = ebi_mc2_queue_store:get(Store, SimulationId),
     case Terminal of
         true ->
             case load_result(SimulationId, ResultDir) of
@@ -308,7 +309,7 @@ handle_result(Simulation, State = #state{store = Store, result_dir = ResultDir})
 %%
 handle_status(Simulation, State) ->
     SimulationId = get_simulation_id(Simulation),
-    {ok, #ebi_mc2_sim{state = {GlobalStateName, _, _}}} = sim_store_get(State#state.store, SimulationId),
+    {ok, #ebi_mc2_sim{state = {GlobalStateName, _, _}}} = ebi_mc2_queue_store:get(State#state.store, SimulationId),
     {ok, GlobalStateName, State}.
 
 
@@ -317,7 +318,7 @@ handle_status(Simulation, State) ->
 %%
 handle_call({ebi_mc2_queue, register_simulation, SimulationId, SimulationPID}, _From, State) ->
     ok = sim_running_add(State#state.running, SimulationId, SimulationPID),
-    {ok, MC2Sim} = sim_store_get(State#state.store, SimulationId),
+    {ok, MC2Sim} = ebi_mc2_queue_store:get(State#state.store, SimulationId),
     {reply, {ok, MC2Sim}, State};
 
 handle_call({ebi_mc2_queue, simulation_result_generated, SimulationId, _ResultStatus, ResultData}, _From, State) ->
@@ -330,7 +331,7 @@ handle_call({ebi_mc2_queue, simulation_result_generated, SimulationId, _ResultSt
 %%  Async calls.
 %%
 handle_cast({ebi_mc2_queue, simulation_status_updated, SimulationId, Status}, State) ->
-    ok = sim_store_set_status(State#state.store, SimulationId, Status),
+    ok = ebi_mc2_queue_store:set_status(State#state.store, SimulationId, Status),
     {noreply, State};
 
 handle_cast({ebi_mc2_queue, unregister_simulation, SimulationId}, State) ->
@@ -376,7 +377,7 @@ handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Stor
     StartSimulation = fun (SimulationId) ->
         {ok, _PID} = ebi_mc2_simulation_sup:start_simulation(SimSup, SimulationId, self())
     end,
-    lists:foreach(StartSimulation, sim_store_get_running(Store)),
+    lists:foreach(StartSimulation, ebi_mc2_queue_store:get_running(Store)),
     {noreply, State}.
     
 
@@ -416,98 +417,6 @@ convert_config(_Name, {partition, PartitionName, MaxParallel}) ->
         max_parallel = MaxParallel
     }.
 
-
-%% =============================================================================
-%%  Helper functions: ETS::store
-%% =============================================================================
-
-
-%%
-%%  Add new simulation to the store.
-%%
-sim_store_add(Table, Simulation) ->
-    SimulationId = get_simulation_id(Simulation),
-    true = ets:insert(Table, {
-        SimulationId,                       % Simulation ID.
-        Simulation,                         % Simulation definition.
-        {pending, undefined, undefined},    % Simulation state: {Global, Local, IsTerminal}        
-        [],                                 % Commands sent to this simulation.
-        {undefined, undefined}              % Target: {ClusterName, PartitionName}.
-    }),
-    ok.
-
-
-%%
-%%  Delete simulation from the store.
-%%
-sim_store_delete(Table, SimulationId) ->
-    true = ets:delete(Table, SimulationId),
-    ok.
-
-
-%%
-%%  Get a simulation by ID.
-%%
-sim_store_get(Table, SimulationId) ->
-    case ets:lookup(Table, SimulationId) of
-        [{SID, Sim, State, Commands, Target}] ->
-            {ok, #ebi_mc2_sim{
-                simulation_id = SID,
-                simulation = Sim,
-                state = State,
-                commands = Commands,
-                target = Target
-            }};
-        [] ->
-            {error, not_found}
-    end.
-
-
-%%
-%%  Returns a list of SimulationIds, for simulations that should be running now.
-%%
-sim_store_get_running(Table) ->
-    Normalize = fun ([X]) -> X end,
-    lists:map(Normalize, ets:match(Table, {'$1', '_', {running, '_', '_'}, '_', '_'})).
-
-
-%%
-%%  Get next pending simulation.
-%%
-sim_store_get_next_pending(Table) ->
-    Match = ets:match(Table, {'$1', '_', {pending, '_', '_'}, '_', '_'}, 1),
-    case Match of
-        '$end_of_table' ->
-            {error, empty};
-        {[[SimulationId]], _Cont} ->
-            {ok, SimulationId}
-    end.
-
-
-%%
-%%  Update simulation status by ID.
-%%
-sim_store_set_status(Table, SimulationId, Status) ->
-    true = ets:update_element(Table, SimulationId, {3, Status}),
-    ok.
-
-
-%%
-%%  Update simulation target by id.
-%%  The assigned target cluster and the corresponding partition are used
-%%  on restart of the queue. The same simulations should be assigned to
-%%  the same clusters to avoid duplicated simulations. 
-%%
-sim_store_set_target(Table, SimulationId, Target = {_Cluster, _Partition}) ->
-    true = ets:update_element(Table, SimulationId, {5, Target}),
-    ok.
-
-
-sim_store_add_command(Table, SimulationId, Command) ->
-    Tuple = ets:lookup(Table, SimulationId),
-    Commands = [Command | Tuple#ebi_mc2_sim.commands],
-    true = ets:update_element(Table, SimulationId, {4, Commands}),
-    ok.
 
 
 %% =============================================================================
@@ -560,11 +469,11 @@ start_pending_simulations(State = #state{store = Store, sim_sup = SimSup, target
         {ok, Target} ->
             % Have available partition.
             % Try to find, if some simulations are pending.
-            case sim_store_get_next_pending(Store) of
+            case ebi_mc2_queue_store:get_next_pending(Store) of
                 {ok, SimulationId} ->
                     % Have partition and pending task.
                     % Start new simulation.
-                    ok = sim_store_set_target(Store, SimulationId, Target),
+                    ok = ebi_mc2_queue_store:set_target(Store, SimulationId, Target),
                     {ok, _PID} = ebi_mc2_simulation_sup:start_simulation(SimSup, SimulationId, self()),
                     {ok, NewTargets} = update_available_target(Targets, Target, +1),
                     start_pending_simulations(State#state{targets = NewTargets});
