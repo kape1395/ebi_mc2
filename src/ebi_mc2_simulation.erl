@@ -98,7 +98,7 @@ cancel(PID) ->
 %%  Called from the queue when it gets a status report from the cluster.
 %%
 status_update(PID, SimulationId, RuntimeStatus, FilesystemStatus) ->
-    ok = gen_fsm:send_all_state_event(PID, {cluster_status, SimulationId, RuntimeStatus, FilesystemStatus}),
+    ok = gen_fsm:send_all_state_event(PID, {status_update, SimulationId, RuntimeStatus, FilesystemStatus}),
     ok.
 
 
@@ -198,7 +198,7 @@ cleaningup_failed(timeout, StateData) ->
 %%
 %%  Handle all state events.
 %%
-handle_event({cluster_status, SimulationId, RTStatus, FSStatus}, StateName, StateData) ->
+handle_event({status_update, SimulationId, RTStatus, FSStatus}, StateName, StateData) ->
     #state{simulation_id = SimulationId, queue = Queue, cluster = Cluster} = StateData,
     RT = {_RTStatusCode, _RTStatusGroup} = slurm_job_status(RTStatus),
     FS = {_FSStatusCode, _FSStatusGroup} = slurm_sim_status(FSStatus),
@@ -212,7 +212,7 @@ handle_event({cluster_status, SimulationId, RTStatus, FSStatus}, StateName, Stat
         {starting,  {_, completed}, _}              -> {finalize, completed};
         {running,   {_, undefined}, {_, undefined}} -> restart;
         {running,   {_, undefined}, {_, started}}   -> clean_restart;
-        {running,   {_, undefined}, {compleetd, _}} -> {finalize, completed};
+        {running,   {_, undefined}, {completed, _}} -> {finalize, completed};
         {running,   {_, undefined}, {failed, _}}    -> {finalize, failed};
         {running,   {_, running},   _}              -> ignore;
         {running,   {_, failed},    _}              -> {finalize, failed};
@@ -238,8 +238,13 @@ handle_event({cluster_status, SimulationId, RTStatus, FSStatus}, StateName, Stat
             ok = do_report_status(Queue, SimulationId, NextState),
             Action;
         {finalize, ResultStatus} ->
-            {ok, SimulationId, ResultData} = ebi_mc2_cluster:simulation_result(Cluster, SimulationId),
-            ok = ebi_mc2_queue:simulation_result_generated(Queue, SimulationId, ResultStatus, ResultData),
+            {ok, SimulationId, ResultData} = ebi_mc2_cluster:simulation_result(
+                Cluster, SimulationId
+            ),
+            ok = ebi_mc2_queue:simulation_result_generated(
+                Queue, SimulationId,
+                expanded_state(ResultStatus), ResultData
+            ),
             do_cleanup(StateData, ResultStatus);
         {finished, TerminalState} ->
             ok = do_report_status(Queue, SimulationId, TerminalState),
@@ -332,8 +337,16 @@ do_cancel(StateData) ->
 do_report_status(Queue, SimulationId, StateName) ->
     ok = ebi_mc2_queue:simulation_status_updated(
         Queue, SimulationId,
-        {external_state(StateName), StateName, terminal_state(StateName)}
+        expanded_state(StateName)
     ).
+
+
+%%
+%%  Construct the expanded version of the state.
+%%
+expanded_state(StateName) ->
+    {external_state(StateName), StateName, terminal_state(StateName)}.
+
 
 %%
 %%  Tells, if the simulation is terminated by its status.
