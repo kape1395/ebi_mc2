@@ -94,3 +94,11 @@ simple_test() ->
     meck:unload(MockedModules),
     ok.
 
+
+%%
+%%  Check if limiting of parallel simulations works.
+%%
+queueing_test() ->  % TODO: Implement.
+    ok.
+
+
