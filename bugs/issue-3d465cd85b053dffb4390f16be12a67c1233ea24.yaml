@@ -1,0 +1,18 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: Send cluster status updates to the queue.
+desc: ""
+type: :task
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-19 04:08:39.160210 Z
+references: []
+
+id: 3d465cd85b053dffb4390f16be12a67c1233ea24
+log_events: 
+- - 2012-10-19 04:08:39.996321 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""

@@ -332,16 +332,21 @@ handle_call({ebi_mc2_queue, simulation_result_generated, SimulationId, _ResultSt
 %%
 %%  Async calls.
 %%
-handle_cast({ebi_mc2_queue, simulation_status_updated, SimulationId, Status}, State) ->
+handle_cast({ebi_mc2_queue, simulation_status_updated, SimulationId, Status}, State = #state{targets = Targets}) ->
     ok = ebi_mc2_queue_store:set_status(State#state.store, SimulationId, Status),
-    {noreply, State};
+    {_, _, Terminal} = Status,
+    case Terminal of
+        true ->
+            {ok, NewTargets} = update_available_target(Targets, {remove, SimulationId}),
+            {ok, NewState} = start_pending_simulations(State#state{targets = NewTargets}),
+            {noreply, NewState};
+        false ->
+            {noreply, State}
+    end;
+    
 
 handle_cast({ebi_mc2_queue, unregister_simulation, SimulationId}, State) ->
     ok = sim_running_del(State#state.running, SimulationId),
-    %
-    % TODO: Update active counts in targets,
-    %        Run some new simulations.
-    % 
     {noreply, State};
 
 handle_cast({ebi_mc2_queue, cluster_state_updated, ClusterState}, State = #state{running = RunningSims}) ->
@@ -375,12 +380,14 @@ handle_info({configure_supervisor, Supervisor, #config{clusters = Clusters}}, St
 %%
 %%  Restart all the simulations, that should be running on startup.
 %%
-handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Store}) ->
-    StartSimulation = fun (SimulationId) ->
-        {ok, _PID} = ebi_mc2_simulation_sup:start_simulation(SimSup, SimulationId, self())
+handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Store, targets = Targets}) ->
+    StartSimulation = fun ({SimulationId, Target}, Targets) ->
+        {ok, _PID, NewTargets} = start_simulation(SimSup, SimulationId, Target, Targets),
+        NewTargets
     end,
-    lists:foreach(StartSimulation, ebi_mc2_queue_store:get_running(Store)),
-    {noreply, State}.
+    {ok, TargetsZeroized} = update_available_target(Targets, zeroize_undefined),
+    TargetsAfterRestart = lists:foldl(StartSimulation, TargetsZeroized, ebi_mc2_queue_store:get_running(Store)),
+    {noreply, State#state{targets = TargetsAfterRestart}}.
     
 
 
@@ -463,6 +470,15 @@ get_simulation_id(SimulationId) when is_list(SimulationId) ->
 
 
 %%
+%%  Starts new simulation
+%%
+start_simulation(SimulationSup, SimulationId, Target, Targets) ->
+    {ok, PID} = ebi_mc2_simulation_sup:start_simulation(SimulationSup, SimulationId, self()),
+    {ok, NewTargets} = update_available_target(Targets, {add, Target, SimulationId}),
+    {ok, PID, NewTargets}.
+
+
+%%
 %%  Tries to start as many simulations as posible and available.
 %%  This function goes over the candidate simulations resursivelly.
 %%
@@ -476,8 +492,7 @@ start_pending_simulations(State = #state{store = Store, sim_sup = SimSup, target
                     % Have partition and pending task.
                     % Start new simulation.
                     ok = ebi_mc2_queue_store:set_target(Store, SimulationId, Target),
-                    {ok, _PID} = ebi_mc2_simulation_sup:start_simulation(SimSup, SimulationId, self()),
-                    {ok, NewTargets} = update_available_target(Targets, Target, +1),
+                    {ok, _PID, NewTargets} = start_simulation(SimSup, SimulationId, Target, Targets),
                     start_pending_simulations(State#state{targets = NewTargets});
                 {error, empty} ->
                     % Have partition, but no tasks pending.
@@ -497,7 +512,7 @@ start_pending_simulations(State = #state{store = Store, sim_sup = SimSup, target
 find_available_target(Targets) ->
     F = fun
         (#target{active = undefined}) -> false;
-        (#target{max = M, active = A}) when A < M -> true;
+        (#target{max = M, active = A}) when length(A) < M -> true;
         (_) -> false
     end,
     case lists:filter(F, Targets) of
@@ -509,12 +524,30 @@ find_available_target(Targets) ->
 %%
 %%  Increases or decreases the active counts for the corresponding targets.
 %%
-update_available_target(Targets, {Cluster, Partition}, ActiveDiff) ->
+update_available_target(Targets, zeroize_undefined) ->
     F = fun
-        (T = #target{cluster = C, partition = P, active = A}) when C == Cluster, P == Partition ->
-            T#target{active = A + ActiveDiff};
+        (T = #target{active = undefined}) ->
+            T#target{active = []};
         (T) ->
             T
+    end,
+    {ok, lists:map(F, Targets)};
+
+update_available_target(Targets, {add, {Cluster, Partition}, SimulationId}) ->
+    F = fun
+        (T = #target{cluster = C, partition = P, active = A}) when C == Cluster, P == Partition ->
+            case lists:member(SimulationId, A) of
+                true -> T;
+                false -> T#target{active = [SimulationId] ++ A}
+            end;
+        (T) ->
+            T
+    end,
+    {ok, lists:map(F, Targets)};
+           
+update_available_target(Targets, {remove, SimulationId}) ->
+    F = fun (T = #target{active = A}) ->
+        T#target{active = A -- [SimulationId]}
     end,
     {ok, lists:map(F, Targets)}.
            

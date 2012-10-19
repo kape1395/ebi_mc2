@@ -2,6 +2,7 @@
 .eunit/
 .project
 .settings/
+.ditz-config
 logs/
 deps/
 ebin/

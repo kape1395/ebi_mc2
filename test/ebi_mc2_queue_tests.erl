@@ -4,7 +4,7 @@
 
 -define(sc(S), {_, {_,start_simulation, [_,S, _]}, _}).
 
-%%
+%% =============================================================================
 %%  Queue started with 2 simulations running.
 %%  Third simulation is submitted and first two are canceled.
 %%  First simulation registered self to the queue, while second one - not (yet). 
@@ -45,6 +45,7 @@ simple_test() ->
     %%
     %%  Mocks for simulations supervisor
     %%
+    {ok, QTS} = mock_store_new(),
     meck:new(ebi_mc2_simulation_sup),
     meck:expect(ebi_mc2_simulation_sup, start_simulation, fun
         (Sup, SID, _Q) when Sup == SimulationSup, SID == SID1 -> {ok, SPID1};
@@ -66,7 +67,7 @@ simple_test() ->
         () -> Store
     end),
     meck:expect(ebi_mc2_queue_store, add, fun
-        (St, S) when St == Store, S == Sim3 -> ok
+        (St, S = #simulation{id = SID}) when St == Store, S == Sim3 -> mock_store_add(QTS, SID)
     end),
     meck:expect(ebi_mc2_queue_store, get, fun
         (St, S) when St == Store, S == SID1 -> {ok, #ebi_mc2_sim{simulation_id = SID1}};
@@ -77,7 +78,13 @@ simple_test() ->
         (St, S, cancel) when St == Store, S == SID2 -> ok
     end),
     meck:expect(ebi_mc2_queue_store, get_running, fun
-        (St) when St == Store -> [SID1, SID2]
+        (St) when St == Store -> [{SID1, {c1, p1}}, {SID2, {c1, p2}}]
+    end),
+    meck:expect(ebi_mc2_queue_store, get_next_pending, fun
+        (St) when St == Store -> mock_store_get(QTS)
+    end),
+    meck:expect(ebi_mc2_queue_store, set_target, fun
+        (St, S, {c1, p2}) when St == Store, S == SID3 -> ok
     end),
     %%
     %%  Test scenario
@@ -94,26 +101,25 @@ simple_test() ->
     MockedModules = [ebi_mc2_sup, ebi_mc2_simulation_sup, ebi_mc2_queue_store, ebi_mc2_simulation],
     ?assert(meck:validate(MockedModules)),
     meck:unload(MockedModules),
+    mock_store_stop(QTS),
     ok.
 
 
-%%
+%% =============================================================================
 %%  Check if limiting of parallel simulations works.
 %%
-queueing_test() ->  % TODO: Implement.
+queueing_test() ->
     MainSup = 'MainSup',
     ClusterSup = 'ClusterSup',
     SimulationSup = 'SimulationSup',
     Store = 'Store',
-    SID01 = "SimulationId-01", SPID01 = "SimulationPID-01", Sim01 = #simulation{id = SID01},
-    SID02 = "SimulationId-02", SPID02 = "SimulationPID-02", Sim02 = #simulation{id = SID02},
-    SID03 = "SimulationId-03", SPID03 = "SimulationPID-03", Sim03 = #simulation{id = SID03},
-    SID04 = "SimulationId-04", SPID04 = "SimulationPID-04", Sim04 = #simulation{id = SID04},
-    SID05 = "SimulationId-05", SPID05 = "SimulationPID-05", Sim05 = #simulation{id = SID05},
-    SID06 = "SimulationId-06", SPID06 = "SimulationPID-06", Sim06 = #simulation{id = SID06},
-    SID07 = "SimulationId-07", SPID07 = "SimulationPID-07", Sim07 = #simulation{id = SID07},
-    SID08 = "SimulationId-08", SPID08 = "SimulationPID-08", Sim08 = #simulation{id = SID08},
-    SID09 = "SimulationId-09", SPID09 = "SimulationPID-09", Sim09 = #simulation{id = SID09},
+    SID01 = "SimulationId-01", Sim01 = #simulation{id = SID01},
+    SID02 = "SimulationId-02", Sim02 = #simulation{id = SID02},
+    SID03 = "SimulationId-03", Sim03 = #simulation{id = SID03},
+    SID04 = "SimulationId-04", Sim04 = #simulation{id = SID04},
+    SID05 = "SimulationId-05", Sim05 = #simulation{id = SID05},
+    SID06 = "SimulationId-06", Sim06 = #simulation{id = SID06},
+    SID07 = "SimulationId-07", Sim07 = #simulation{id = SID07},
     ClusterConfig = #config_cluster{
         name = c1, ssh_host = "host", ssh_port = 22, ssh_user = "user",
         local_user_dir = "/home/user", cluster_command = "/home/user/bin/cluster", status_check_ms = 10000,
@@ -126,6 +132,7 @@ queueing_test() ->  % TODO: Implement.
     %%
     %%  Mocks
     %%
+    {ok, QTS} = mock_store_new(),
     meck:new   (ebi_mc2_sup),
     meck:expect(ebi_mc2_sup, add_cluster_sup, 2, {ok, ClusterSup}),
     meck:expect(ebi_mc2_sup, add_simulation_sup, 1, {ok, SimulationSup}),
@@ -135,34 +142,78 @@ queueing_test() ->  % TODO: Implement.
     meck:expect(ebi_mc2_simulation, cancel, 1, ok),
     meck:new   (ebi_mc2_queue_store),
     meck:expect(ebi_mc2_queue_store, init, 0, Store),
-    meck:expect(ebi_mc2_queue_store, add, 2, ok),
+    meck:expect(ebi_mc2_queue_store, add, fun (_, #simulation{id = SID}) -> mock_store_add(QTS, SID) end),
     meck:expect(ebi_mc2_queue_store, get, fun (_, SID) -> {ok, #ebi_mc2_sim{simulation_id = SID}} end),
     meck:expect(ebi_mc2_queue_store, add_command, 3, ok),
     meck:expect(ebi_mc2_queue_store, get_running, 1, []), % No simulations are running on startup
+    meck:expect(ebi_mc2_queue_store, get_next_pending, fun (_) -> mock_store_get(QTS) end),
+    meck:expect(ebi_mc2_queue_store, set_target, 3, ok),
+    meck:expect(ebi_mc2_queue_store, set_status, 3, ok),
     %%
     %%  Test scenario
     %%
     {ok, PID} = ebi_queue:start_link(ebi_mc2_queue, {Config, MainSup}),
+    
     ebi_queue:submit(PID, Sim01),
     ebi_queue:submit(PID, Sim02),
     ebi_queue:submit(PID, Sim03),
     ebi_queue:submit(PID, Sim04),
-    ebi_queue:submit(PID, Sim05),
-    sleep(100),
-    SimHist1 = meck:history(ebi_mc2_simulation_sup),
-    ?debugFmt("History1: ~p~n", [SimHist1]),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = SimHist1,
+    ebi_queue:submit(PID, Sim05), sleep(100),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = meck:history(ebi_mc2_simulation_sup),
 
-    %ebi_mc2_queue:register_simulation(PID, SID01, SPID01),
-    sleep(1000), 
+    ebi_queue:submit(PID, Sim06), sleep(100),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = meck:history(ebi_mc2_simulation_sup),
+
+    ebi_mc2_queue:simulation_status_updated(PID, SID02, {completed, completed, true}), sleep(100),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04)] = meck:history(ebi_mc2_simulation_sup),
+    
+    ebi_mc2_queue:simulation_status_updated(PID, SID01, {completed, completed, true}),
+    ebi_mc2_queue:simulation_status_updated(PID, SID03, {completed, completed, true}),
+    ebi_mc2_queue:simulation_status_updated(PID, SID04, {completed, completed, true}), sleep(100),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06)] = meck:history(ebi_mc2_simulation_sup),
+    
+    ebi_mc2_queue:simulation_status_updated(PID, SID05, {completed, completed, true}), sleep(100),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06)] = meck:history(ebi_mc2_simulation_sup),
+
+    ebi_queue:submit(PID, Sim07), sleep(100),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06), ?sc(SID07)] = meck:history(ebi_mc2_simulation_sup),
+    
     %%
     %%  Validation
     %%
     MockedModules = [ebi_mc2_sup, ebi_mc2_simulation_sup, ebi_mc2_queue_store, ebi_mc2_simulation],
     ?assert(meck:validate(MockedModules)),
     meck:unload(MockedModules),
+    mock_store_stop(QTS),
     ok.
 
 
+%% =============================================================================
+%%  Helper functions
+%%
 sleep(MS) ->
-    receive none -> ok after 1000 -> ok end.
+    receive none -> ok after MS -> ok end.
+
+mock_store_new() -> {ok, spawn(fun () -> mock_store([]) end)}.
+mock_store_add(QTS, SID) -> QTS ! {add, SID}, ok.
+mock_store_get(QTS) -> QTS ! {get, self()}, receive {qts, R} -> R end.
+mock_store_stop(QTS) -> QTS ! stop.
+mock_store(Q) ->
+    receive
+        {get, From} ->
+            case Q of
+                [] ->
+                    From ! {qts, {error, empty}},
+                    mock_store(Q);
+                [Head|Tail] ->
+                    From ! {qts, {ok, Head}},
+                    mock_store(Tail)
+            end;
+        {add, SID} ->
+            mock_store(Q ++ [SID]);
+        stop ->
+            ok
+        after 10000 ->
+            timeout
+    end.
+

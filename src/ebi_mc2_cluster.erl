@@ -21,6 +21,8 @@
 %%    * Forward the `submit`, `delete`, `cancel` and `result` commans to the cluster.
 %%    * Periodically get status of the cluster and send it to the queue.
 %%
+%%  TODO: Send cluster status to the queue.
+%%
 -module(ebi_mc2_cluster).
 -behaviour(ssh_channel).
 -export([start/0, start_link/0, stop/1, check/1, store_config/3]). % API

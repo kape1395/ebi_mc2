@@ -73,8 +73,10 @@ get(Table, SimulationId) ->
 %%  Returns a list of SimulationIds, for simulations that should be running now.
 %%
 get_running(Table) ->
-    Normalize = fun ([X]) -> X end,
-    lists:map(Normalize, ets:match(Table, {'$1', '_', {running, '_', '_'}, '_', '_'})).
+    Normalize = fun
+        ([SID, Target]) -> {SID, Target}
+    end,
+    lists:map(Normalize, ets:match(Table, {'$1', '_', {running, '_', '_'}, '_', '$2'})).
 
 
 %%
