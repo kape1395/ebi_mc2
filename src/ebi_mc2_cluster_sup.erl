@@ -15,16 +15,14 @@
 %
 
 %%
-%%  @private
-%%  @doc Supervisor governing the cluster connections.
+%%  @doc Supervisor governing processes related to single cluster connection.
 %%  They should be considered fragile. The server dicsonnects the connections from
 %%  time to time. The ssh_channel sometimes hangs till first call, and then fails after
 %%  some timeout.
-%%  @see ebi_queue_mifcl2
 %%
 -module(ebi_mc2_cluster_sup).
 -behaviour(supervisor).
--export([start_link/1]). % API
+-export([start_link/2, start_cluster_resp/2]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
 
@@ -36,11 +34,22 @@
 %%
 %%  @doc Initialize this supervisor.
 %%
--spec start_link([#config_cluster{}]) ->
-        {ok, pid()} |
-        term().
-start_link(Clusters) ->
-    supervisor:start_link(?MODULE, {Clusters}).
+-spec start_link(#config_cluster{}, pid()) -> {ok, pid()} | term().
+start_link(ClusterConfig, Queue) ->
+    supervisor:start_link(?MODULE, {ClusterConfig, Queue}).
+
+
+%%
+%%  @doc Starts the cluster response parser.
+%%
+-spec start_cluster_resp(pid(), pid()) -> {ok, pid()} | term().
+start_cluster_resp(Supervisor, ClusterPID) ->
+    Module = ebi_mc2_cluster_resp,
+    Spec = {Module,
+            {Module, start_link, [ClusterPID]},
+            permanent, brutal_kill, worker, [Module]
+    },
+    supervisor:start_child(Supervisor, Spec).
 
 
 
@@ -51,14 +60,12 @@ start_link(Clusters) ->
 %%
 %%  @doc Configure the supervisor.
 %%
-init({Clusters}) ->
+init({ClusterConfig, Queue}) ->
     Module = ebi_mc2_cluster,
-    SpecFun = fun (C = #config_cluster{name = CN}) ->
-        {CN,
-            {Module, start_link, [C]},
+    {ok, {{one_for_all, 120, 60}, [
+        {Module,
+            {Module, start_link, [ClusterConfig, Queue, self()]},
             permanent, brutal_kill, worker, [Module]
         }
-    end,
-    Specs = [ SpecFun(C) || C <- Clusters], 
-    {ok, {{one_for_all, 120, 60}, Specs}}.
+    ]}}.
 

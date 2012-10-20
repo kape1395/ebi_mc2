@@ -21,7 +21,7 @@
 %%
 -module(ebi_mc2_sup).
 -behaviour(supervisor).
--export([start_link_spec/1, start_link/1, add_cluster_sup/2, add_simulation_sup/1]). % API
+-export([start_link_spec/1, start_link/1, add_cluster_setsup/3, add_simulation_setsup/1]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
 
@@ -53,13 +53,13 @@ start_link(Config) ->
 %%
 %%  @doc Add a cluster (ssh channel) supervisor.
 %%
--spec add_cluster_sup(pid(), [#config_cluster{}]) ->
+-spec add_cluster_setsup(pid(), [#config_cluster{}], pid()) ->
         {ok, pid()} |
         term().
-add_cluster_sup(Supervisor, Clusters) ->
-    Mod = ebi_mc2_cluster_sup,
+add_cluster_setsup(Supervisor, Clusters, Queue) ->
+    Mod = ebi_mc2_cluster_setsup,
     Spec = {Mod,
-        {Mod, start_link, [Clusters]},
+        {Mod, start_link, [Clusters, Queue]},
         permanent, brutal_kill, supervisor, [Mod]
     }, 
     supervisor:start_child(Supervisor, Spec).
@@ -68,11 +68,11 @@ add_cluster_sup(Supervisor, Clusters) ->
 %%
 %%  @doc Add a supervisor for the simulations.
 %%
--spec add_simulation_sup(pid()) ->
+-spec add_simulation_setsup(pid()) ->
         {ok, pid()} |
         term().
-add_simulation_sup(Supervisor) ->
-    Mod = ebi_mc2_simulation_sup,
+add_simulation_setsup(Supervisor) ->
+    Mod = ebi_mc2_simulation_setsup,
     Spec = {Mod,
         {Mod, start_link, []},
         permanent, brutal_kill, supervisor, [Mod]

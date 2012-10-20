@@ -16,12 +16,15 @@
 
 %%
 %%  @private
-%%  @doc Supervisor governing all the running simulations on the queue.
-%%  @see ebi_mc2_queue
+%%  @doc Supervisor governing the cluster connections.
+%%  They should be considered fragile. The server dicsonnects the connections from
+%%  time to time. The ssh_channel sometimes hangs till first call, and then fails after
+%%  some timeout.
+%%  @see ebi_queue_mifcl2
 %%
--module(ebi_mc2_simulation_sup).
+-module(ebi_mc2_cluster_setsup).
 -behaviour(supervisor).
--export([start_link/0, start_simulation/3]). % API
+-export([start_link/2]). % API
 -export([init/1]). % Callbacks
 -include("ebi_mc2.hrl").
 
@@ -31,39 +34,31 @@
 %% =============================================================================
 
 %%
-%%  @doc Start this supervisor.
+%%  @doc Initialize this supervisor.
 %%
--spec start_link() -> {ok, pid()} | term().
-start_link() ->
-    supervisor:start_link(?MODULE, {}).
-
-
-%%
-%%  @doc Add new simulation.
-%%  Only the simulation ID and the colaborator process ids should
-%%  be passed here. The actual simulation definition will be retrieved
-%%  from the queue on simulation startup (or restart).
-%%
--spec start_simulation(pid(), string(), pid()) ->
+-spec start_link([#config_cluster{}], pid()) ->
         {ok, pid()} |
         term().
-start_simulation(Supervisor, SimulationId, Queue) ->
-    supervisor:start_child(Supervisor, [SimulationId, Queue]).
+start_link(Clusters, Queue) ->
+    supervisor:start_link(?MODULE, {Clusters, Queue}).
 
 
 
 %% =============================================================================
-%%  Callbacks.
+%%  Callbacks for supervisor.
 %% =============================================================================
 
 %%
 %%  @doc Configure the supervisor.
 %%
-init({}) ->
-    Mod = ebi_mc2_simulation,
-    Spec = {Mod,
-        {Mod, start_link, []},
-        permanent, brutal_kill, worker, [Mod]
-    },
-    {ok, {{simple_one_for_one, 120, 60}, [Spec]}}.
+init({Clusters, Queue}) ->
+    Module = ebi_mc2_cluster_sup,
+    SpecFun = fun (C = #config_cluster{name = CN}) ->
+        {CN,
+            {Module, start_link, [C, Queue]},
+            permanent, brutal_kill, supervisor, [Module]
+        }
+    end,
+    Specs = [ SpecFun(C) || C <- Clusters], 
+    {ok, {{one_for_one, 120, 60}, Specs}}.
 

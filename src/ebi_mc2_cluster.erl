@@ -14,225 +14,186 @@
 % limitations under the License.
 %
 
-%%  @doc
-%%  @private
-%%  This module implements actual communication with the cluster via SSH.
+%%
+%%  @doc Implementation of the actual communication with the cluster via SSH.
 %%  The following are the main tasks for this module:
 %%    * Forward the `submit`, `delete`, `cancel` and `result` commans to the cluster.
 %%    * Periodically get status of the cluster and send it to the queue.
 %%
-%%  TODO: Send cluster status to the queue.
-%%
 -module(ebi_mc2_cluster).
 -behaviour(ssh_channel).
--export([start/0, start_link/0, stop/1, check/1, store_config/3]). % API
--export([submit_simulation/3, delete_simulation/2, cancel_simulation/2, simulation_status/2, simulation_result/2]). % API
--export([init/1, terminate/2, handle_ssh_msg/2,handle_msg/2]). % Server side ssh_channel?
--export([handle_call/3, handle_cast/2, code_change/3]).        % Client side ssh_tunnel
+-export([ % API
+    start_link/3,
+    submit_simulation/3,
+    delete_simulation/2,
+    cancel_simulation/2,
+    simulation_result/2
+]).
+-export([response/3]).
+-export([init/1, terminate/2, handle_ssh_msg/2, handle_msg/2]).
+-export([handle_call/3, handle_cast/2, code_change/3]).
 -include("ebi.hrl").
-
+-include("ebi_mc2.hrl").
 -define(TIMEOUT, 10000).
--record(state, {
-    cref,    % SSH Connection reference
-    chan,    % SSH Channel ID
-    cmd,     % Command to execute on the server
-    req,     % List of pending requests
-    part,    % SLURM partition to submit jobs on
-    lineBuf, % Partial line got from the ssh server
-    respHandler % Function to be used for handling SSH responses.
-}).
+
+
+%% =============================================================================
+%%  Public API.
+%% =============================================================================
+
 
 %%
-%%  Some initial ideas were:
-%%      ssh uosis.mif.vu.lt /users3/karolis/PST/bin/cluster-shell
-%%      ????ssh_connection:exec(CR, CH, "/users3/karolis/PST/bin/cluster-login", 5000).
-%%      ????ssh_connection_manager:request(CR, self(), CH, "/users3/karolis/PST/bin/cluster-login", false, <<>>, 0).
+%%  Start the cluster connection.
 %%
-%% karolis@uosis: .ssh/authorized_keys:
-%%     command="/users3/karolis/PST/bin/cluster-shell",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-rsa ... ebi_queue_mif2_ssh@karolis-home
-%% karolis@home:
-%%     ssh -T -i /home/karolis/GITWORK/kape1395.biosensor.solver-2D/src/ebi/etc/ssh/id_rsa uosis.mif.vu.lt
-%%
-%% See:
-%%     http://binaries.erlang-solutions.com/R15A/lib/ssh-2.0.8./src/ssh_shell.erl
-%%
-%% Tests:
-%%      rr(ebi).
-%%      application:start(crypto), application:start(ssh).
-%%      {ok, PID} = ebi_queue_mifcl2_ssh_chan:start_link().
-%%      ok = ebi_queue_mifcl2_ssh_chan:check(PID).
-%%
-%%      Model = ebi_model:read_model("test/ebi_model_tests-CNT-2D.xml", kp1_xml).
-%%      #model{definition = ModelDef} = Model.
-%%      ModelId = ebi:get_id(Model).
-%%      ebi_queue_mifcl2_ssh_chan:store_config(PID, ModelId, ModelDef).
-%%
-%%      ok = ebi_queue_mifcl2_ssh_chan:stop(PID).
-%%
-
-start() ->
-    start_internal(fun ssh_channel:start/4).
-
-start_link() ->
-    start_internal(fun ssh_channel:start_link/4).
-
-start_internal(StartFun) ->
-    {ok, CRef} = ssh:connect("uosis.mif.vu.lt", 22, [
-        {user_dir, "/home/karolis/GITWORK/kape1395.biosensor.solver-2D/src/ebi/etc/ssh"},
-        {user, "karolis"},
+-spec start_link(#config_cluster{}, pid(), pid()) -> {ok, pid()} | term(). 
+start_link(Config, Queue, Supervisor) ->
+    #config_cluster{
+        ssh_host = Host,
+        ssh_port = Port,
+        ssh_user = User,
+        local_user_dir = UserDir
+    } = Config,
+    {ok, CRef} = ssh:connect(Host, Port, [
+        {user_dir, UserDir},
+        {user, User},
         {silently_accept_hosts, true},
         {connect_timeout, ?TIMEOUT}
     ], ?TIMEOUT),
     {ok, Chan} = ssh_connection:session_channel(CRef, ?TIMEOUT),
-    StartFun(CRef, Chan, ?MODULE, #state{
-        cref = CRef, chan = Chan,
-        cmd = "/users3/karolis/PST/bin/cluster",
-        req = [],
-        part = "long",
-        lineBuf = <<>>,
-        respHandler = fun handle_ssh_msg_line/3
-    }).
+    ssh_channel:start_link(CRef, Chan, ?MODULE, {Config, CRef, Chan, Queue, Supervisor}).
 
 
-check(Ref) ->
-    ssh_channel:call(Ref, check).
-
-
-stop(Ref) ->
-    ssh_channel:cast(Ref, stop).
-
-
-store_config(Ref, ConfigName, ConfigData) ->
-    ssh_channel:call(Ref, {store_config, ConfigName, ConfigData}).
-
-
+%%
+%%  Submit new simulation to the cluster, to the specified partition.
+%%
+-spec submit_simulation(atom(), atom(), #simulation{}) -> ok.
 submit_simulation(Ref, Partition, Simulation) when is_record(Simulation, simulation) ->
-    ssh_channel:cast(Ref, {
-        submit_simulation,
-        Simulation#simulation{id = ebi_queue_mifcl2:get_simulation_id(Simulation)},
-        Partition
-    }).
+    ssh_channel:cast(Ref, {store_config_and_submit_simulation, Simulation, Partition}).
 
-
+%%
+%%  Delete the specified simulation from the cluster.
+%%
+-spec delete_simulation(atom(), string()) -> ok.
 delete_simulation(Ref, SimulationId) ->
     ssh_channel:cast(Ref, {delete_simulation, SimulationId}).
 
 
+%%
+%%  Cancel the specified simulation in the cluster.
+%%
+-spec cancel_simulation(atom(), string()) -> ok.
 cancel_simulation(Ref, SimulationId) ->
     ssh_channel:cast(Ref, {cancel_simulation, SimulationId}).
 
 
-simulation_status(Ref, SimulationId) ->
-    ssh_channel:call(Ref, {simulation_status, SimulationId}).
-
+%%
+%%  Get the simulation results.
+%%
 -spec simulation_result(atom(), string()) -> {ok, SimulationId :: list(), ResponseLines :: list()}.
 simulation_result(Ref, SimulationId) ->
     ssh_channel:call(Ref, {simulation_result, SimulationId}).
 
 
+%% =============================================================================
+%%  API for ebi_mc2_cluster_resp.
+%% =============================================================================
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%  Callbacks.
+
 %%
+%%  Invoked by the response parser when the call response is collected.
+%%
+-spec response(atom(), term(), term()) -> ok.
+response(Ref, {cluster_status, ClusterStatus}, ?MODULE) ->
+    Ref ! {have_cluster_status, ClusterStatus},
+    ok;
+
+response(_Ref, Response, From) ->
+    ssh_channel:reply(From, Response),
+    ok.
+
+
+
+%% =============================================================================
+%%  Internal state
+%% =============================================================================
+
+
+-record(state, {
+    cfg,            % Cluster config
+    tref,           % Timer reference
+    cref,           % SSH Connection reference
+    chan,           % SSH Channel ID
+    cmd,            % Command to execute on the server
+    line_buf,       % Partial line got from the ssh server
+    known_sim_defs, % Known simulation definitions (sha1 sums of xml files).    TODO
+    resp,           % Response parser.
+    queue           % Corresponding queue.
+}).
+
+
+
+%% =============================================================================
+%%  Callbacks for ssh_channel.
+%% =============================================================================
 
 
 %%
 %%  Initialization.
 %%
-init(Args = #state{cref = CRef, chan = Chan}) ->
+init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval}, CRef, Chan, Queue, Supervisor}) ->
+    self() ! {start_cluster_resp, Supervisor},
     ok = ssh_connection:shell(CRef, Chan),
-    {ok, Args}.
+    {ok, TRef} = timer:send_interval(Interval, {check_cluster_status}),
+    State = #state{
+        cfg = Config,
+        tref = TRef,
+        cref = CRef,
+        chan = Chan,
+        cmd = Cmd,
+        line_buf = <<>>,
+        known_sim_defs = [],
+        resp = undefined,
+        queue = Queue
+    },
+    {ok, State}.
+
 
 %%
 %%  Termination.
 %%
-terminate(Reason, #state{cref = CRef, chan = Chan}) ->
+terminate(Reason, #state{tref = TRef, cref = CRef, chan = Chan}) ->
     error_logger:info_msg("~s: destroy(reason=~p)~n", [?MODULE, Reason]),
+    timer:cancel(TRef),
     ssh_connection:close(CRef, Chan),
     ssh:close(CRef),
     ok.
 
 
 %%
-%%  Sync commands.
+%%  Handle all synchronous commands.
 %%
-handle_call(check = Cmd, From, State) ->
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "check", []),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    {noreply, add_req(State, Cmd, CallRef, From), ?TIMEOUT};
-
-handle_call({store_config = Cmd, ConfigName, ConfigData}, From, State) ->
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "store_config", [ConfigName]),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    ssh_connection:send(CRef, Chan, bin_to_base64(ConfigData)),
-    ssh_connection:send(CRef, Chan, ["#END_OF_FILE__store_config__", CallRef, "\n"]),
-    {noreply, add_req(State, Cmd, CallRef, From), ?TIMEOUT};
-
-handle_call({simulation_status = Cmd, SimulationId}, From, State) ->
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "simulation_status", [SimulationId]),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    {noreply, add_req(State, Cmd, CallRef, From), ?TIMEOUT};
-
-handle_call({simulation_result = Cmd, SimulationId}, From, State) ->
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "simulation_result", [SimulationId]),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    {noreply, add_req(State, Cmd, CallRef, From), ?TIMEOUT}.
+handle_call(Command, From, State) ->
+    invoke_cluster_command(Command, From, State).
 
 
 %%
 %%  Async commands.
 %%
-handle_cast(stop, State = #state{cref = CRef, chan = Chan}) ->
-    error_logger:info_msg("~s: handle_cast(stop)~n", [?MODULE]),
-    ssh_connection:send_eof(CRef, Chan),
-    {stop, normal, State};
-
-handle_cast({submit_simulation = Cmd, Simulation, Partition}, State) ->
-    #simulation{id = SimulationName, model = Model, params = Params} = Simulation,
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "submit_simulation", [
-        SimulationName,                              % sim_name
-        ebi:get_id(Model),                       % cfg_name
-        Partition,                                   % partition
-        [param_to_option(Param) || Param <- Params]  % params
-    ]),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    {noreply, add_req(State, Cmd, CallRef, undefined), ?TIMEOUT};
-
-handle_cast({delete_simulation = Cmd, SimulationId}, State) ->
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "delete_simulation", [SimulationId]),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    {noreply, add_req(State, Cmd, CallRef, undefined), ?TIMEOUT};
-
-handle_cast({cancel_simulation = Cmd, SimulationId}, State) ->
-    #state{cref = CRef, chan = Chan} = State,
-    CallRef = make_uid(),
-    CmdLine = make_cmd(State, CallRef, "cancel_simulation", [SimulationId]),
-    ssh_connection:send(CRef, Chan, CmdLine),
-    {noreply, add_req(State, Cmd, CallRef, undefined), ?TIMEOUT}.
-
-
+handle_cast(Command, State) ->
+    invoke_cluster_command(Command, undefined, State).
+    
 
 %%
 %%  Messages comming from the SSH server.
 %%  In the first case the function splits input into lines and checks whether the
 %%  last line was complete (ending with \n).
 %%
-handle_ssh_msg({ssh_cm, _Ref, {data, _Chan, _Type, BinaryData}} = Msg, State = #state{lineBuf = LineBuf, respHandler = RespHandler}) ->
+handle_ssh_msg({ssh_cm, _Ref, {data, _Chan, _Type, BinaryData}}, State) ->
+    #state{line_buf = LineBuf, resp = Resp} = State,
     DataWithBuf = <<LineBuf/binary, BinaryData/binary>>,
     [ PartialLine | FullLines ] = lists:reverse(binary:split(DataWithBuf, <<"\n">>, [global])),
-    RespHandler(Msg, State#state{lineBuf = PartialLine}, lists:reverse(FullLines));
+    ok = ebi_mc2_cluster_resp:response_lines(Resp, lists:reverse(FullLines)),
+    {ok, State#state{line_buf = PartialLine}};
 
 handle_ssh_msg(Msg, State) ->
     error_logger:info_msg("~s: handle_ssh_msg(msg=~p)~n", [?MODULE, Msg]),
@@ -240,183 +201,129 @@ handle_ssh_msg(Msg, State) ->
 
 
 %%
-%%  Handles messages comming from the SSH server line by line.
-%%  Implementation of the response handler "fun (M, S, L)".
+%%  Initialize the response parser.
 %%
-handle_ssh_msg_line(_SshMsg, State, []) ->
-    {ok, State};
-handle_ssh_msg_line(SshMsg, State, [MsgLine | OtherLines]) ->
-    case MsgLine of
-        <<"#CLUSTER:LGN(0000000000000000000000000000000000000000)==>", Msg/binary>> ->
-            error_logger:info_msg("~s: handle_ssh_msg(LGN): msg=~p~n", [?MODULE, Msg]),
-            handle_ssh_msg_line(SshMsg, State, OtherLines);
-        <<"#CLUSTER:OUT(", CallRefBin:40/binary, ")==>", Msg/binary>> ->
-            CallRef = binary:bin_to_list(CallRefBin),
-            {Cmd, From} = get_req(State, CallRef),
-            {ok, NewState} = handle_ssh_cmd_response(Cmd, From, Msg, State),
-            handle_ssh_msg_line(SshMsg, rem_req(NewState, CallRef), OtherLines);
-        <<"#CLUSTER:ERR(", CallRefBin:40/binary, ")==>", ErrCode:3/binary, ":", ErrMsg/binary>> ->
-            error_logger:error_msg("~s: handle_ssh_msg(ERR): ref=~p, code=~p, msg=~p~n", [?MODULE, CallRefBin, ErrCode, ErrMsg]),
-            CallRef = binary:bin_to_list(CallRefBin),
-            {_, From} = get_req(State, CallRef),
-            ssh_channel:reply(From, error),
-            handle_ssh_msg_line(SshMsg, rem_req(State, CallRef), OtherLines);
-        <<"#", Msg/binary>> ->
-            error_logger:error_msg("~s: handle_ssh_msg(#??): ~p~n", [?MODULE, Msg]),
-            handle_ssh_msg_line(SshMsg, State, OtherLines);
-        _ ->
-            error_logger:error_msg("~s: handle_ssh_msg(???): ~p~n", [?MODULE, MsgLine]),
-            handle_ssh_msg_line(SshMsg, State, OtherLines)
-    end .
+handle_msg({start_cluster_resp, Supervisor}, State) ->
+    {ok, PID} = ebi_mc2_cluster_sup:start_cluster_resp(Supervisor, self()),
+    {ok, State#state{resp = PID}};
 
 %%
-%%  Handles simulation result messages comming from the SSH server.
-%%  This function is "sometimes" used instead of handle_ssh_msg_line/3 (see #state.respHandler).
-%%  Implementation of the response handler "fun (M, S, L)", but is used indirectly, via funs, used
-%%  to implement continuations.
+%%  Here we get notification from timer to check the cluster state.
 %%
-handle_ssh_cmd_line_sr(_SshMsg, State, [], From, SimulationId, ResultLines) ->
-    RH = fun (M, S, L) -> handle_ssh_cmd_line_sr(M, S, L, From, SimulationId, ResultLines) end,
-    {ok, State#state{respHandler = RH}};
-handle_ssh_cmd_line_sr(SshMsg, State, [MsgLine | OtherLines], From, SimulationId, ResultLines) ->
-    case MsgLine of
-        <<"#SR:", MsgBase64/binary>> ->
-            DecodedMsg = base64:decode(MsgBase64),
-            handle_ssh_cmd_line_sr(SshMsg, State, OtherLines, From, SimulationId, [DecodedMsg | ResultLines]);
-        <<"#CLUSTER:OUT(", _CallRefBin:40/binary, ")==>RESULT:", _SimIdEnd:40/binary, ":END">> ->
-            ssh_channel:reply(From, {ok, SimulationId, lists:reverse(ResultLines)}),
-            RH = fun handle_ssh_msg_line/3,
-            handle_ssh_msg_line(SshMsg, State#state{respHandler = RH}, OtherLines);
-        _ ->
-            error_logger:error_msg("~s: handle_ssh_cmd_line_sr(???): ~p~n", [?MODULE, MsgLine]),
-            RH = fun handle_ssh_msg_line/3,
-            handle_ssh_msg_line(SshMsg, State#state{respHandler = RH}, OtherLines)
-    end.
-
+handle_msg({check_cluster_status}, State) ->
+    {ok, NewState} = invoke_cluster_command({cluster_status}, ?MODULE, State),
+    {ok, NewState};
 
 %%
-%%  Command response handler, used for first lines of the command responses.
+%%  Here we are getting cluster status from the response/3 function, invoked by the response parser.
 %%
-handle_ssh_cmd_response(check, From, <<"OK">>, State) ->
-    ssh_channel:reply(From, ok),
+handle_msg({have_cluster_status, ClusterStatus}, State = #state{queue = Queue}) ->
+    ok = ebi_mc2_queue:cluster_state_updated(Queue, ClusterStatus),
     {ok, State};
-
-handle_ssh_cmd_response(store_config, From, Message, State) ->
-    case Message of
-        <<"STORED">>   -> ssh_channel:reply(From, {ok, stored});
-        <<"EXISTING">> -> ssh_channel:reply(From, {ok, existing})
-    end,
-    {ok, State};
-
-handle_ssh_cmd_response(submit_simulation, undefined, Message, State) ->
-    case Message of
-        <<"SUBMITTED:", SimulationId:40/binary, ":", JobId/binary>> ->
-            error_logger:info_msg(
-                "~s: Simulation ~s submitted, jobid=~s.~n",
-                [?MODULE, SimulationId, JobId]
-            );
-        <<"DUPLICATE:", SimulationId:40/binary>> ->
-            error_logger:info_msg(
-                "~s: Simulation ~s is duplicate therefore not submited~n",
-                [?MODULE, SimulationId]
-            )
-    end,
-    {ok, State};
-
-handle_ssh_cmd_response(delete_simulation, undefined, Message, State) ->
-    case Message of
-        <<"DELETED:", SimulationId:40/binary>> ->
-            error_logger:info_msg("~s: Simulation ~s deleted~n", [?MODULE, SimulationId]);
-        <<"DELETE:", SimulationId:40/binary, ":SIM_RUNNING">> ->
-            error_logger:info_msg("~s: Simulation ~s not deleted (still running)~n", [?MODULE, SimulationId])
-    end,
-    {ok, State};
-
-handle_ssh_cmd_response(cancel_simulation, undefined, Message, State) ->
-    case Message of
-        <<"CANCELLED:", SimulationId:40/binary>> ->
-            error_logger:info_msg("~s: Simulation ~s canceled~n", [?MODULE, SimulationId])
-    end,
-    {ok, State};
-
-handle_ssh_cmd_response(simulation_status, From, Message, State) ->
-    ParsedMessage = string:tokens(binary:bin_to_list(Message), ":"),
-    [ SimName, _NameRT, StatusRT, _JobIdRT, _NameFS, StatusFS, _JobIdFS ] = ParsedMessage,
-    case {StatusRT, StatusFS} of
-        {"UNKNOWN", "STARTED"} ->              Status = failed;
-        {"UNKNOWN", "STOPPED_SUCCESSFUL"} ->   Status = done;
-        {"UNKNOWN", "STOPPED_FAILED"} ->       Status = failed;
-        {"UNKNOWN", "STOPPED_"} ->             Status = failed;
-        {"UNKNOWN", "UNKNOWN"} ->              Status = unknown;
-        {"CANCELLED", _} ->                    Status = failed;
-        {"COMPLETED", "STOPPED_SUCCESSFUL"} -> Status = done;
-        {"COMPLETED", "STOPPED_FAILED"} ->     Status = failed;
-        {"CONFIGURING", _} ->                  Status = running;
-        {"COMPLETING", _} ->                   Status = running;
-        {"FAILED", _} ->                       Status = failed;
-        {"NODE_FAIL", _} ->                    Status = failed;
-        {"PENDING", _} ->                      Status = pending;
-        {"PREEMPTED", _} ->                    Status = failed;
-        {"RUNNING", _} ->                      Status = running;
-        {"SUSPENDED", _} ->                    Status = running;
-        {"TIMEOUT", _} ->                      Status = failed
-    end,
-    ssh_channel:reply(From, {ok, SimName, Status}),
-    {ok, State};
-
-handle_ssh_cmd_response(simulation_result, From, Message, State) ->
-    case Message of
-        <<"RESULT:", SimulationId:40/binary, ":START">> ->
-            RespHandler = fun (M, S, L) -> handle_ssh_cmd_line_sr(M, S, L, From, binary:bin_to_list(SimulationId), []) end,
-            {ok, State#state{respHandler = RespHandler}};
-        <<"RESULT:", SimulationId:40/binary, ":SIM_RUNNING">> ->
-            ssh_channel:reply(From, {error, binary:bin_to_list(SimulationId), running}),
-            {ok, State};
-        <<"RESULT:", SimulationId:40/binary, ":NOT_FOUND">> ->
-            ssh_channel:reply(From, {error, binary:bin_to_list(SimulationId), not_found}),
-            {ok, State}
-    end.
-
 
 %%
-%%  Other messages.
+%%  Here we getting the channel up event.
 %%
 handle_msg({ssh_channel_up, _Chan, _CRef}, State) ->
     {ok, State};
+
+%%
+%%  Terminate on timeout.
+%%
 handle_msg(timeout, State = #state{chan = Chan}) ->
     error_logger:info_msg("~s: handle_msg(timeout)~n", [?MODULE]),
     {stop, Chan, State};
+
+%%
+%%  Ignore all the rest.
+%%
 handle_msg(Msg, State) ->
     error_logger:info_msg("~s: handle_msg(msg=~p)~n", [?MODULE, Msg]),
     {ok, State}.
 
 
+%%
+%%  Code change.
+%%
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% =============================================================================
+%%  Internal functions.
+%% =============================================================================
 
 
-make_uid() ->
-    ebi:get_id(unique).
+%%
+%%  Invokes command in the cluster.
+%%  All the communication is done in the async way, so there is not much of
+%%  difference between call and cast operation.
+%%  The difference is in the response parses.
+%%
+invoke_cluster_command({store_config_and_submit_simulation, Simulation, _Partition}, From, State) ->
+    #simulation{model = Model} = Simulation,
+    #state{known_sim_defs = KnownSimDefs} = State,
+    SimDefId = ebi:get_id(Model),
+    case lists:member(SimDefId, KnownSimDefs) of
+        true ->
+            {ok, NewState} = invoke_cluster_command({submit_simulation, Simulation}, From, State),
+            {noreply, NewState, ?TIMEOUT};
+        false ->
+            NewState = [SimDefId | KnownSimDefs],
+            {ok, StateAfterStore} = invoke_cluster_command({store_config, Simulation}, From, NewState),
+            {ok, StateAfterSubmit} = invoke_cluster_command({submit_simulation, Simulation}, From, StateAfterStore),
+            {noreply, StateAfterSubmit, ?TIMEOUT}
+    end;
+    
+invoke_cluster_command(CommandRequest, From, State) ->
+    #state{cref = CRef, chan = Chan, resp = Resp} = State,
+    CallRef = ebi:get_id(unique),
+    Command = element(1, CommandRequest),
+    ok = ebi_mc2_cluster_resp:add_call(Resp, CallRef, Command, From),
+    case CommandRequest of
+        {store_config, #simulation{model = Model}} ->
+            #model{definition = ConfigData} = Model,
+            ConfigName = ebi:get_id(Model),
+            CmdLine = make_cmd(State, CallRef, "store_config", [ConfigName]),
+            ssh_connection:send(CRef, Chan, CmdLine),
+            ssh_connection:send(CRef, Chan, bin_to_base64(ConfigData)),
+            ssh_connection:send(CRef, Chan, ["#END_OF_FILE__store_config__", CallRef, "\n"]),
+            {ok, State};
+        {cluster_status} ->
+            CmdLine = make_cmd(State, CallRef, "cluster_status", []),
+            ssh_connection:send(CRef, Chan, CmdLine),
+            {noreply, State, ?TIMEOUT};
+        {submit_simulation, Simulation, Partition} ->
+            #simulation{id = SimulationName, model = Model, params = Params} = Simulation,
+            CmdLine = make_cmd(State, CallRef, "submit_simulation", [
+                SimulationName,                              % sim_name
+                ebi:get_id(Model),                           % cfg_name
+                Partition,                                   % partition
+                [param_to_option(Param) || Param <- Params]  % params
+            ]),
+            ssh_connection:send(CRef, Chan, CmdLine),
+            {noreply, State, ?TIMEOUT};
+        {delete_simulation, SimulationId} ->
+            CmdLine = make_cmd(State, CallRef, "delete_simulation", [SimulationId]),
+            ssh_connection:send(CRef, Chan, CmdLine),
+            {noreply, State, ?TIMEOUT};
+        {cancel_simulation, SimulationId} ->
+            CmdLine = make_cmd(State, CallRef, "cancel_simulation", [SimulationId]),
+            ssh_connection:send(CRef, Chan, CmdLine),
+            {noreply, State, ?TIMEOUT};
+        {simulation_result, SimulationId} ->
+            CmdLine = make_cmd(State, CallRef, "simulation_result", [SimulationId]),
+            ssh_connection:send(CRef, Chan, CmdLine),
+            {noreply, State, ?TIMEOUT}
+    end.
 
+
+%%
+%%  Format command line.
+%%
 make_cmd(#state{cmd = Cmd}, Ref, Command, Args) ->
     [Cmd, " ", Ref, " ", Command, " ", [ [" \"", A, "\"" ] || A <- Args ], "\n"].
-
-
-%%
-%%  Functions for manipulating with the request queue.
-%%
-add_req(State = #state{req = Req}, Cmd, Ref, From) ->
-    State#state{req = [{Cmd, Ref, From} | Req]}.
-
-get_req(#state{req = Req}, CallRef) ->
-    [{Cmd, _, From}] = lists:filter(fun ({_, CR, _}) when CR == CallRef -> true; (_) -> false end, Req),
-    {Cmd, From}.
-
-rem_req(State = #state{req = Req}, CallRef) ->
-    State#state{req = lists:filter(fun ({_, CR, _}) when CR == CallRef -> false; (_) -> true end, Req)}.
 
 
 %%

@@ -36,18 +36,18 @@ simple_test() ->
     %%  Mocks for main supervisor
     %%
     meck:new(ebi_mc2_sup),
-    meck:expect(ebi_mc2_sup, add_cluster_sup, fun
-        (Sup, Cl) when Sup == MainSup, Cl == [ClusterConfig] -> {ok, ClusterSup}
+    meck:expect(ebi_mc2_sup, add_cluster_setsup, fun
+        (Sup, Cl, _Q) when Sup == MainSup, Cl == [ClusterConfig] -> {ok, ClusterSup}
     end),
-    meck:expect(ebi_mc2_sup, add_simulation_sup, fun
+    meck:expect(ebi_mc2_sup, add_simulation_setsup, fun
         (Sup) when Sup == MainSup -> {ok, SimulationSup}
     end),
     %%
     %%  Mocks for simulations supervisor
     %%
     {ok, QTS} = mock_store_new(),
-    meck:new(ebi_mc2_simulation_sup),
-    meck:expect(ebi_mc2_simulation_sup, start_simulation, fun
+    meck:new(ebi_mc2_simulation_setsup),
+    meck:expect(ebi_mc2_simulation_setsup, start_simulation, fun
         (Sup, SID, _Q) when Sup == SimulationSup, SID == SID1 -> {ok, SPID1};
         (Sup, SID, _Q) when Sup == SimulationSup, SID == SID2 -> {ok, SPID2};
         (Sup, SID, _Q) when Sup == SimulationSup, SID == SID3 -> {ok, SPID3}
@@ -98,7 +98,7 @@ simple_test() ->
     %%
     %%  Validation
     %%
-    MockedModules = [ebi_mc2_sup, ebi_mc2_simulation_sup, ebi_mc2_queue_store, ebi_mc2_simulation],
+    MockedModules = [ebi_mc2_sup, ebi_mc2_simulation_setsup, ebi_mc2_queue_store, ebi_mc2_simulation],
     ?assert(meck:validate(MockedModules)),
     meck:unload(MockedModules),
     mock_store_stop(QTS),
@@ -134,10 +134,10 @@ queueing_test() ->
     %%
     {ok, QTS} = mock_store_new(),
     meck:new   (ebi_mc2_sup),
-    meck:expect(ebi_mc2_sup, add_cluster_sup, 2, {ok, ClusterSup}),
-    meck:expect(ebi_mc2_sup, add_simulation_sup, 1, {ok, SimulationSup}),
-    meck:new   (ebi_mc2_simulation_sup),
-    meck:expect(ebi_mc2_simulation_sup, start_simulation, fun (_, SID, _)  -> {ok, _SPID = SID} end),
+    meck:expect(ebi_mc2_sup, add_cluster_setsup, 3, {ok, ClusterSup}),
+    meck:expect(ebi_mc2_sup, add_simulation_setsup, 1, {ok, SimulationSup}),
+    meck:new   (ebi_mc2_simulation_setsup),
+    meck:expect(ebi_mc2_simulation_setsup, start_simulation, fun (_, SID, _)  -> {ok, _SPID = SID} end),
     meck:new   (ebi_mc2_simulation),
     meck:expect(ebi_mc2_simulation, cancel, 1, ok),
     meck:new   (ebi_mc2_queue_store),
@@ -159,29 +159,29 @@ queueing_test() ->
     ebi_queue:submit(PID, Sim03),
     ebi_queue:submit(PID, Sim04),
     ebi_queue:submit(PID, Sim05), sleep(100),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = meck:history(ebi_mc2_simulation_sup),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = meck:history(ebi_mc2_simulation_setsup),
 
     ebi_queue:submit(PID, Sim06), sleep(100),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = meck:history(ebi_mc2_simulation_sup),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03)] = meck:history(ebi_mc2_simulation_setsup),
 
     ebi_mc2_queue:simulation_status_updated(PID, SID02, {completed, completed, true}), sleep(100),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04)] = meck:history(ebi_mc2_simulation_sup),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04)] = meck:history(ebi_mc2_simulation_setsup),
     
     ebi_mc2_queue:simulation_status_updated(PID, SID01, {completed, completed, true}),
     ebi_mc2_queue:simulation_status_updated(PID, SID03, {completed, completed, true}),
     ebi_mc2_queue:simulation_status_updated(PID, SID04, {completed, completed, true}), sleep(100),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06)] = meck:history(ebi_mc2_simulation_sup),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06)] = meck:history(ebi_mc2_simulation_setsup),
     
     ebi_mc2_queue:simulation_status_updated(PID, SID05, {completed, completed, true}), sleep(100),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06)] = meck:history(ebi_mc2_simulation_sup),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06)] = meck:history(ebi_mc2_simulation_setsup),
 
     ebi_queue:submit(PID, Sim07), sleep(100),
-    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06), ?sc(SID07)] = meck:history(ebi_mc2_simulation_sup),
+    [?sc(SID01), ?sc(SID02), ?sc(SID03), ?sc(SID04), ?sc(SID05), ?sc(SID06), ?sc(SID07)] = meck:history(ebi_mc2_simulation_setsup),
     
     %%
     %%  Validation
     %%
-    MockedModules = [ebi_mc2_sup, ebi_mc2_simulation_sup, ebi_mc2_queue_store, ebi_mc2_simulation],
+    MockedModules = [ebi_mc2_sup, ebi_mc2_simulation_setsup, ebi_mc2_queue_store, ebi_mc2_simulation],
     ?assert(meck:validate(MockedModules)),
     meck:unload(MockedModules),
     mock_store_stop(QTS),

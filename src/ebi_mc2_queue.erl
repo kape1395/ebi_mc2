@@ -19,24 +19,30 @@
 %%  A queue implementation for delegating calculations to the "MIF cluster v2".
 %%  A structure of this module is the following:
 %%  ````
-%%  + ebi_mc2_sup.erl (supervisor)
+%%  + ebi_mc2_sup.erl (supervisor, one-for-all)
 %%    |       Supervisor for all the queue implementation (ebi_mc2).
 %%    |
 %%    + ebi_mc2_queue.erl  (ebi_queue)
 %%    |       Interfafe module and all the queue implementation.
 %%    |       A user should invoke functions in this module only.
 %%    |
-%%    +ebi_mc2_simulation_sup.erl (supervisor)
+%%    +ebi_mc2_simulation_setsup.erl (supervisor, one_for_one)
 %%    | |     Supervisor for the simulation processes (FSMs).
 %%    | |
 %%    | + ebi_mc2_simulation.erl (gen_fsm)
 %%    |       Implementation of the communication via SSH.
 %%    |
-%%    + ebi_mc2_cluster_sup.erl (supervisor)
+%%    + ebi_mc2_cluster_setsup.erl (supervisor, one_for_one)
 %%      |     Supervisor for all the cluster ssh connections.
 %%      |
-%%      + ebi_mc2_cluster.erl (ssh_channel)
-%%            Implementation of the communication via SSH.
+%%      + ebi_mc2_cluster_sup.erl (supervisor, one-for-all)
+%%        |   Supervisor for single cluster connection.
+%%        |
+%%        + ebi_mc2_cluster.erl (ssh_channel)
+%%        |   Implementation of the communication via SSH.
+%%        |
+%%        + ebi_mc2_cluster_resp.erl (gen_fsm)
+%%            SSH response parser.
 %%  ''''
 %%
 %%  Apart from implementing a queue interface, this module is responsible for persistence of the
@@ -373,19 +379,19 @@ handle_cast({ebi_mc2_queue, cluster_state_updated, ClusterState}, State = #state
 %%  Start the cluster and simulation supervisors.
 %%
 handle_info({configure_supervisor, Supervisor, #config{clusters = Clusters}}, State) ->
-    {ok, _ClusterSup} = ebi_mc2_sup:add_cluster_sup(Supervisor, Clusters),
-    {ok, SimulationSup} = ebi_mc2_sup:add_simulation_sup(Supervisor), 
+    {ok, _ClusterSup} = ebi_mc2_sup:add_cluster_setsup(Supervisor, Clusters, self()),
+    {ok, SimulationSup} = ebi_mc2_sup:add_simulation_setsup(Supervisor), 
     {noreply, State#state{sim_sup = SimulationSup}};
 
 %%
 %%  Restart all the simulations, that should be running on startup.
 %%
-handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Store, targets = Targets}) ->
+handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Store, targets = TargetsInitial}) ->
     StartSimulation = fun ({SimulationId, Target}, Targets) ->
         {ok, _PID, NewTargets} = start_simulation(SimSup, SimulationId, Target, Targets),
         NewTargets
     end,
-    {ok, TargetsZeroized} = update_available_target(Targets, zeroize_undefined),
+    {ok, TargetsZeroized} = update_available_target(TargetsInitial, zeroize_undefined),
     TargetsAfterRestart = lists:foldl(StartSimulation, TargetsZeroized, ebi_mc2_queue_store:get_running(Store)),
     {noreply, State#state{targets = TargetsAfterRestart}}.
     
@@ -473,7 +479,7 @@ get_simulation_id(SimulationId) when is_list(SimulationId) ->
 %%  Starts new simulation
 %%
 start_simulation(SimulationSup, SimulationId, Target, Targets) ->
-    {ok, PID} = ebi_mc2_simulation_sup:start_simulation(SimulationSup, SimulationId, self()),
+    {ok, PID} = ebi_mc2_simulation_setsup:start_simulation(SimulationSup, SimulationId, self()),
     {ok, NewTargets} = update_available_target(Targets, {add, Target, SimulationId}),
     {ok, PID, NewTargets}.
 
