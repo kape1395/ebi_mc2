@@ -142,7 +142,7 @@ cluster_status({out, <<"CLUSTER_STATUS:START">>}, StateData) ->
 cluster_status({out, <<"CLUSTER_STATUS:END">>}, StateData = #state{res = Res}) ->
     respond_and_process_next({cluster_status, Res}, StateData#state{res = undefined});
 
-cluster_status({sr, <<Type:2/binary, ":", SimulationId:40/binary, ":", Status/binary>>}, StateData) ->
+cluster_status({data, <<Type:2/binary, ":", SimulationId:40/binary, ":", Status/binary>>}, StateData) ->
     #state{res = Res} = StateData,
     StatusType = case Type of
         <<"FS">> -> fs;
@@ -198,7 +198,7 @@ simulation_result({out, <<"RESULT:", _SimulationId:40/binary, ":START">>}, State
 simulation_result({out, <<"RESULT:", _SimulationId:40/binary, ":END">>}, StateData = #state{res = ResultLines}) ->
     respond_and_process_next(lists:reverse(ResultLines), StateData#state{res = undefined});
 
-simulation_result({sr, MsgBase64}, StateData = #state{res = ResultLines}) ->
+simulation_result({data, MsgBase64}, StateData = #state{res = ResultLines}) ->
     DecodedMsg = base64:decode(MsgBase64),
     {next_state, simulation_result, StateData#state{res = [DecodedMsg | ResultLines]}}.
 
@@ -246,8 +246,8 @@ handle_event({line, ResponseLine}, StateName, StateData = #state{cmd = Command})
                     log_err("line(ERR): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
                     {stop, error, StateName, StateData}
             end;
-        <<"#SR:", MsgBase64/binary>> ->
-            gen_fsm:send_event(self(), {sr, MsgBase64}),
+        <<"#DATA:", MsgBase64/binary>> ->
+            gen_fsm:send_event(self(), {data, MsgBase64}),
             {next_state, StateName, StateData};
         <<"#", _Msg/binary>> ->
             log_err("line(#??): ~p", [ResponseLine]),

@@ -5,6 +5,7 @@ COMMAND=$2
 
 . .clusterrc
 WORKDIR=$CFG_WORKDIR
+CURRENT_SOLVER=$CFG_SOLVR_HOME
 
 
 LOG_FILE="$WORKDIR/$(basename $0).log"
@@ -12,7 +13,6 @@ STATUS_FILE="$WORKDIR/$(basename $0)-status.dat"
 BIN_DIR=$WORKDIR/bin
 CONFIG_DIR=$WORKDIR/cfg
 SIMULATION_DIR=$WORKDIR/sim
-CURRENT_SOLVER=$WORKDIR/biosensor-0.6.6-amd64-debian-6.0.4
 PATH="/opt/slurm/bin:$PATH"
 
 echo "CALL: $0 $@" >> $LOG_FILE
@@ -155,7 +155,7 @@ function do_sim_result() {
         reply "RESULT:$sim_name:SIM_RUNNING"
     elif [[ -d $SIMULATION_DIR/$sim_name ]] ; then
         reply "RESULT:$sim_name:START"
-        ( cd $SIMULATION_DIR ; tar -cz $sim_name* ) | base64 | sed 's/^/#SR:/'
+        ( cd $SIMULATION_DIR ; tar -cz $sim_name* ) | base64 | sed 's/^/#DATA:/'
         reply "RESULT:$sim_name:END"
     else
         reply "RESULT:$sim_name:NOT_FOUND"
@@ -210,3 +210,4 @@ case $COMMAND in
     (*) error $ERR_BADCMD "Unknown command \"${COMMAND}\"."
 esac
 exit 0
+
