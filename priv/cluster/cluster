@@ -120,32 +120,6 @@ function do_cancel_sim() {
 
 
 #
-#   Get job status
-#
-function do_sim_status() {
-    local sim_name=$1
-    local state_rt
-    local state_fs
-    local state
-
-    #Name:Status:JobId
-
-    state_rt=$(squeue --noheader --states=all --format="%j:%T:%i" | grep $sim_name)
-    if [[ "$state_rt" == "" ]] ; then
-        state_rt="0000000000000000000000000000000000000000:UNKNOWN:0"
-    fi
-
-    if [[ -f $SIMULATION_DIR/$sim_name.status ]] ; then
-        state_fs=$(cat $SIMULATION_DIR/$sim_name.status)
-    else
-        state_fs="0000000000000000000000000000000000000000:UNKNOWN:0"
-    fi
-
-    reply "$sim_name:$state_rt:$state_fs"
-}
-
-
-#
 #   Get simulation results (base64, tar.gz).
 #
 function do_sim_result() {
@@ -196,16 +170,31 @@ function do_store_config() {
 }
 
 
+#
+#   Returns a status of the cluster.
+#
+function do_cluster_status() {
+    reply "CLUSTER_STATUS:START"
+
+    #DATA:(FS|RT):Name:Status:JobId
+
+    squeue --noheader --states=all --format="%j:%T:%i"                  | sed 's/^/#DATA:RT:/'
+    cat $SIMULATION_DIR/????????????????????????????????????????.status | sed 's/^/#DATA:FS:/'
+
+    reply "CLUSTER_STATUS:END"
+}
+
+
+
 ################################################################################
 ##  Main switch
 ##
 case $COMMAND in
-    (check)             reply OK ;;
     (store_config)      do_store_config "$@" ;;
+    (cluster_status)    do_cluster_status ;;
     (submit_simulation) do_submit_sim "$@" ;;
     (delete_simulation) do_delete_sim "$@" ;;
     (cancel_simulation) do_cancel_sim "$@" ;;
-    (simulation_status) do_sim_status "$@" ;;
     (simulation_result) do_sim_result "$@" ;;
     (*) error $ERR_BADCMD "Unknown command \"${COMMAND}\"."
 esac

@@ -142,12 +142,13 @@ cluster_status({out, <<"CLUSTER_STATUS:START">>}, StateData) ->
 cluster_status({out, <<"CLUSTER_STATUS:END">>}, StateData = #state{res = Res}) ->
     respond_and_process_next({cluster_status, Res}, StateData#state{res = undefined});
 
-cluster_status({data, <<Type:2/binary, ":", SimulationId:40/binary, ":", Status/binary>>}, StateData) ->
+cluster_status({data, <<Type:2/binary, ":", SimulationId:40/binary, ":", StatusAndJobId/binary>>}, StateData) ->
     #state{res = Res} = StateData,
     StatusType = case Type of
         <<"FS">> -> fs;
         <<"RT">> -> rt
     end,
+    [Status, _JobId] = binary:split(StatusAndJobId, <<":">>),
     StatusRecord = {StatusType,
         binary_to_list(SimulationId),
         binary_to_list(Status)
