@@ -113,7 +113,7 @@ init({Cluster}) ->
         cmd = undefined,
         cmds = queue:new()
     },
-    {ok, StateData}.
+    {ok, idle, StateData}.
 
 
 %%

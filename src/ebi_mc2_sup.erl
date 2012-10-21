@@ -46,6 +46,7 @@ start_link_spec(Config = #config{name = Name}) ->
 %%  `Name' is used to register the queue process and
 %%  `Args' is used as a configuration for it (see {@link ebi_mc2_queue}).
 %%
+-spec start_link(term() | embedded) -> {ok, pid()} | term().
 start_link(Config) ->
     supervisor:start_link(?MODULE, {Config}).
 
@@ -89,10 +90,15 @@ add_simulation_setsup(Supervisor) ->
 %%  @doc Configures this supervisor.
 %%
 init({Config}) ->
-    Mod = ebi_mc2_queue,
-    Spec = {Mod,
-        {Mod, start_link, [Config, self()]},
-        permanent, brutal_kill, worker, [Mod]
-    }, 
-    {ok, {{one_for_all, 100, 60}, [Spec]}}.
+    case Config of
+        embedded ->
+            {ok, {{one_for_all, 100, 60}, []}};
+        #config{} ->
+            Mod = ebi_mc2_queue,
+            Spec = {Mod,
+                {Mod, start_link, [Config, self()]},
+                permanent, brutal_kill, worker, [Mod]
+            }, 
+            {ok, {{one_for_all, 100, 60}, [Spec]}}
+    end.
 

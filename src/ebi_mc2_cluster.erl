@@ -103,7 +103,7 @@ simulation_result(Ref, SimulationId) ->
 %%  Invoked by the response parser when the call response is collected.
 %%
 -spec response(atom(), term(), term()) -> ok.
-response(Ref, {cluster_status, ClusterStatus}, ?MODULE) ->
+response(Ref, ClusterStatus = {cluster_status, _}, ?MODULE) ->
     Ref ! {have_cluster_status, ClusterStatus},
     ok;
 
@@ -141,9 +141,11 @@ response(_Ref, Response, From) ->
 %%  Initialization.
 %%
 init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval}, CRef, Chan, Queue, Supervisor}) ->
-    self() ! {start_cluster_resp, Supervisor},
+    CheckStatusMsg = {check_cluster_status},
     ok = ssh_connection:shell(CRef, Chan),
-    {ok, TRef} = timer:send_interval(Interval, {check_cluster_status}),
+    self() ! {start_cluster_resp, Supervisor},
+    self() ! CheckStatusMsg,
+    {ok, TRef} = timer:send_interval(Interval, CheckStatusMsg),
     State = #state{
         cfg = Config,
         tref = TRef,
@@ -211,7 +213,7 @@ handle_msg({start_cluster_resp, Supervisor}, State) ->
 %%  Here we get notification from timer to check the cluster state.
 %%
 handle_msg({check_cluster_status}, State) ->
-    {ok, NewState} = invoke_cluster_command({cluster_status}, ?MODULE, State),
+    {noreply, NewState, _Timeout} = invoke_cluster_command({cluster_status}, ?MODULE, State),
     {ok, NewState};
 
 %%

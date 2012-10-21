@@ -22,6 +22,7 @@
 -export([install/1]).
 -export([start/2, stop/1]). % Callbacks
 -include("ebi_mc2.hrl").
+-define(APP_NAME, ebi_mc2).
 
 
 %% =============================================================================
@@ -51,7 +52,24 @@ install(Nodes) ->
 
 
 start(_StartType, _StartArgs) ->
-    {error, not_implemented}.
+    Embedded = case application:get_env(?APP_NAME, embedded) of
+        undefined -> false;
+        {ok, Value} -> Value
+    end,
+    case Embedded of
+        true ->
+            ebi_mc2_sup:start_link(embedded);
+        false ->
+            {ok, Name} = application:get_env(?APP_NAME, name),
+            {ok, Clusters} = application:get_env(?APP_NAME, clusters),
+            {ok, ResultDir} = application:get_env(?APP_NAME, result_dir),
+            PlainConfig = {queue, [
+                {clusters, Clusters},
+                {result_dir, ResultDir}
+            ]},
+            Config = ebi_mc2_queue:convert_config(Name, PlainConfig),
+            ebi_mc2_sup:start_link(Config)
+    end.
 
 
 stop(_State) ->

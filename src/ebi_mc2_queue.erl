@@ -93,7 +93,8 @@
 -module(ebi_mc2_queue).
 -behaviour(ebi_queue).
 -export([ %% Public API 
-    start_link/2
+    start_link/2,
+    convert_config/2
 ]).
 -export([ %% API for ebi_mc2_simulation.
     simulation_result_generated/4,
@@ -183,6 +184,37 @@ register_simulation(Queue, SimulationId, SimulationPID) ->
 unregister_simulation(Queue, SimulationId) ->
     ok = gen_server:cast(Queue, {ebi_mc2_queue, unregister_simulation, SimulationId}),
     ok.
+
+
+%%
+%%  Converts configuration to the internal formats (tuples to records).
+%%
+convert_config(Name, {queue, PropList}) ->
+    Clusters = proplists:get_value(clusters, PropList, []),
+    ResultDir = proplists:get_value(result_dir, PropList),
+    #config{
+        name = Name,
+        clusters = [ convert_config(Name, C) || C <- Clusters ],
+        result_dir = ResultDir
+    };
+
+convert_config(Name, {cluster, ClusterName, SshHost, SshPort, SshUser, LUD, CC, SCMS, Partitions}) ->
+    #config_cluster{
+        name = ClusterName,
+        ssh_host = SshHost,
+        ssh_port = SshPort,
+        ssh_user = SshUser,
+        local_user_dir = LUD,
+        cluster_command = CC,
+        status_check_ms = SCMS,
+        partitions = [ convert_config(Name, P) || P <- Partitions ]
+    };
+
+convert_config(_Name, {partition, PartitionName, MaxParallel}) ->
+    #config_partition{
+        name = PartitionName,
+        max_parallel = MaxParallel
+    }.
 
 
 
@@ -407,43 +439,6 @@ handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Stor
     TargetsAfterRestart = lists:foldl(StartSimulation, TargetsZeroized, ebi_mc2_queue_store:get_running(Store)),
     {noreply, State#state{targets = TargetsAfterRestart}}.
     
-
-
-%% =============================================================================
-%%  Helper functions: Configuration
-%% =============================================================================
-
-
-%%
-%%  Converts configuration to the internal formats (tuples to records).
-%%
-convert_config(Name, {queue, PropList}) ->
-    Clusters = proplists:get_value(clusters, PropList, []),
-    ResultDir = proplists:get_value(result_dir, PropList),
-    #config{
-        name = Name,
-        clusters = [ convert_config(Name, C) || C <- Clusters ],
-        result_dir = ResultDir
-    };
-
-convert_config(Name, {cluster, ClusterName, SshHost, SshPort, SshUser, LUD, CC, SCMS, Partitions}) ->
-    #config_cluster{
-        name = ClusterName,
-        ssh_host = SshHost,
-        ssh_port = SshPort,
-        ssh_user = SshUser,
-        local_user_dir = LUD,
-        cluster_command = CC,
-        status_check_ms = SCMS,
-        partitions = [ convert_config(Name, P) || P <- Partitions ]
-    };
-
-convert_config(_Name, {partition, PartitionName, MaxParallel}) ->
-    #config_partition{
-        name = PartitionName,
-        max_parallel = MaxParallel
-    }.
-
 
 
 %% =============================================================================

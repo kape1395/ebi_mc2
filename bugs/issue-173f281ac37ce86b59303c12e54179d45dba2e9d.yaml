@@ -1,0 +1,24 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: "ebi_mc2_cluster_resp: line(???): <<\"cat: /scratch/lustre/karolis/PST/sim/????????????????????????????????????????.status: No such file or directory\">>"
+desc: ""
+type: :bugfix
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :closed
+disposition: :fixed
+creation_time: 2012-10-21 17:21:17.314622 Z
+references: []
+
+id: 173f281ac37ce86b59303c12e54179d45dba2e9d
+log_events: 
+- - 2012-10-21 17:21:18.335534 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""
+- - 2012-10-21 17:25:37.494274 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - closed with disposition fixed
+  - |-
+    in the cluster command.
+    /
