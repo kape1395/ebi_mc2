@@ -1,0 +1,14 @@
+#!/bin/bash
+
+CONFIG_FILE=$1
+SIMULATION_DIR=$2
+BIN_DIR=$3
+BIN_SOLVER=$4
+PARAMS="$5"
+STEP=300
+
+$BIN_SOLVER \
+    $CONFIG_FILE $SIMULATION_DIR $PARAMS 2>&1 \
+    | awk -v data=${SIMULATION_DIR} -v cleanup=${BIN_DIR}/cleanup -v step=${STEP} -f ${BIN_DIR}/bio-solver-sup.awk \
+    > ${SIMULATION_DIR}.log
+

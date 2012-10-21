@@ -1,0 +1,8 @@
+#!/bin/bash
+DATA=$1
+(
+    cd $DATA
+    if (( $(ls -1 concentrations-* | wc -l) > 1 )) ; then
+        ls -1 concentrations-* | sort -r | sed '1d' | xargs rm 
+    fi
+)

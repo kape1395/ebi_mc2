@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Read the configuration
+. .clusterrc
+
+
+PASS=$(echo -ne "$CFG_PASSWORD" | base64 -d)
+
+function msg() {
+    echo -ne "#CLUSTER:LGN(0000000000000000000000000000000000000000)==>$*\n"
+}
+
+#
+#   Needed to suppress SSH login banner.
+#
+if [[ ! -f .hushlogin ]] ; then
+    touch .hushlogin
+    msg "Login banner disabled."
+fi
+
+#
+#   Get valid kerberos ticket.
+#
+klist -s
+if (( $? == 1 )) ; then
+    echo $PASS | kinit >> /dev/null
+    if (( $? == 0 )) ; then
+        msg "kinit succeeded."
+    else
+        msg "kinit failed."
+    fi
+else
+    msg "Have cached kerberos ticket."
+fi
+
+#
+#   Connecting to the cluster.
+#
+msg "Connecting to the cluster..."
+ssh -q cluster /bin/bash
+msg "Disconnected from the cluster."
+

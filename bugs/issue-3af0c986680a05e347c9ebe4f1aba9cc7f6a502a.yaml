@@ -1,0 +1,18 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: Move CURRENT_SOLVER to .clusterrc
+desc: See priv/cluster/cluster.
+type: :task
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-21 05:09:17.191516 Z
+references: []
+
+id: 3af0c986680a05e347c9ebe4f1aba9cc7f6a502a
+log_events: 
+- - 2012-10-21 05:09:18.212412 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""

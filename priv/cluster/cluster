@@ -1,0 +1,212 @@
+#!/bin/bash
+
+MSGREF=$1
+COMMAND=$2
+
+. .clusterrc
+WORKDIR=$CFG_WORKDIR
+
+
+LOG_FILE="$WORKDIR/$(basename $0).log"
+STATUS_FILE="$WORKDIR/$(basename $0)-status.dat"
+BIN_DIR=$WORKDIR/bin
+CONFIG_DIR=$WORKDIR/cfg
+SIMULATION_DIR=$WORKDIR/sim
+CURRENT_SOLVER=$WORKDIR/biosensor-0.6.6-amd64-debian-6.0.4
+PATH="/opt/slurm/bin:$PATH"
+
+echo "CALL: $0 $@" >> $LOG_FILE
+shift 2
+
+
+###############################################################################
+##  Helper functions
+##
+
+#
+#   Error codes.
+#
+ERR_BADCMD=001
+ERR_NOCFG=002
+ERR_BADSTATE=003
+
+
+#
+#   Protocol message implementation.
+#
+function reply() {
+    local msg="$1"
+    echo -ne "#CLUSTER:OUT($MSGREF)==>${msg}\n"
+}
+function error() {
+    local code=$1
+    local msg="$2"
+    echo -ne "#CLUSTER:ERR($MSGREF)==>${code}:${msg}\n"
+}
+
+
+################################################################################
+##  Command implementations
+##
+
+#
+#   Start simulation job.
+#
+function submit_slurm_sbatch() {
+    local sim_name=$1
+    local cfg_name=$2
+    local partition=$3
+    local params="$4"
+    local status_file=$SIMULATION_DIR/$sim_name.status
+    local slurm_file=$SIMULATION_DIR/$sim_name.slurm
+    local log_file=$SIMULATION_DIR/$sim_name.log
+    local sim_dir=$SIMULATION_DIR/$sim_name
+    sbatch --job-name=$sim_name --partition=$partition --ntasks=1 \
+        --workdir=$WORKDIR --output=$slurm_file --error=$slurm_file \
+        <<EOF
+#!/bin/bash
+echo -ne "$sim_name:STARTED:\$SLURM_JOB_ID\n" > $status_file
+srun --chdir=$WORKDIR $BIN_DIR/bio-solver $CONFIG_DIR/$cfg_name $sim_dir $BIN_DIR $CURRENT_SOLVER/bin/bio-solver "$params"
+STATUS=\$(grep "bio-solver:.#.Simulation" $log_file | sed 's/^.*Simulation.\(.*\)$/\1/g')
+echo -ne "$sim_name:STOPPED_\$STATUS:\$SLURM_JOB_ID\n" > $status_file
+EOF
+}
+
+function do_submit_sim() {
+    local sim_name=$1
+    local cfg_name=$2
+    local partition=$3
+    local params="$4"
+    local job_id
+    if [[ ! -f $CONFIG_DIR/$cfg_name ]] ; then
+        error $ERR_NOCFG "Configuration $cfg_name does not exist but is required for $sim_name"
+    elif [[ -f $SIMULATION_DIR/$sim_name.status ]] ; then
+        reply "DUPLICATE:$sim_name"
+    else
+        job_id=$(submit_slurm_sbatch $sim_name $cfg_name $partition "$params" | sed 's/[a-zA-Z ]//g')
+        reply "SUBMITTED:$sim_name:$job_id"
+    fi
+}
+
+
+#
+#   Delete simulation results.
+#
+function do_delete_sim() {
+    local sim_name=$1
+    local stat_file=$SIMULATION_DIR/$sim_name.status
+
+    if [[ -n $(squeue --noheader --format="%j" | grep $sim_name) ]] ; then
+        # We dont need to check all states (see above)
+        reply "DELETE:$sim_name:SIM_RUNNING"
+    else
+        if [[ -f $stat_file ]] ; then
+            cat $stat_file >> $STATUS_FILE
+        fi
+        rm -rf $SIMULATION_DIR/$sim_name* 
+        reply "DELETED:$sim_name"
+    fi
+}
+
+
+#
+#   Cancel the specified simulation.
+#
+function do_cancel_sim() {
+    local sim_name=$1
+    scancel --name=$sim_name
+    reply "CANCELED:$sim_name"
+}
+
+
+#
+#   Get job status
+#
+function do_sim_status() {
+    local sim_name=$1
+    local state_rt
+    local state_fs
+    local state
+
+    #Name:Status:JobId
+
+    state_rt=$(squeue --noheader --states=all --format="%j:%T:%i" | grep $sim_name)
+    if [[ "$state_rt" == "" ]] ; then
+        state_rt="0000000000000000000000000000000000000000:UNKNOWN:0"
+    fi
+
+    if [[ -f $SIMULATION_DIR/$sim_name.status ]] ; then
+        state_fs=$(cat $SIMULATION_DIR/$sim_name.status)
+    else
+        state_fs="0000000000000000000000000000000000000000:UNKNOWN:0"
+    fi
+
+    reply "$sim_name:$state_rt:$state_fs"
+}
+
+
+#
+#   Get simulation results (base64, tar.gz).
+#
+function do_sim_result() {
+    local sim_name=$1
+    if [[ -n $(squeue --noheader --format="%j" | grep $sim_name) ]] ; then
+        # We dont need to check all states (see above)
+        reply "RESULT:$sim_name:SIM_RUNNING"
+    elif [[ -d $SIMULATION_DIR/$sim_name ]] ; then
+        reply "RESULT:$sim_name:START"
+        ( cd $SIMULATION_DIR ; tar -cz $sim_name* ) | base64 | sed 's/^/#SR:/'
+        reply "RESULT:$sim_name:END"
+    else
+        reply "RESULT:$sim_name:NOT_FOUND"
+    fi
+}
+
+
+#
+#   Store configuration.
+#
+function do_store_config() {
+    local config_name="$1"
+    local config_file=$CONFIG_DIR/$config_name
+    local line
+    local done
+    local save_to
+    local response
+    if [[ -f $config_file ]] ; then
+        save_to=/dev/null
+        response=EXISTING
+    else
+        save_to=${config_file}.orig
+        response=STORED
+    fi
+    done=N
+    while [[ $done == N ]] ; do
+        read -s -t 10 line
+        if [[ "$line" == "#END_OF_FILE__store_config__${MSGREF}" ]] ; then
+            done=Y
+        else
+            echo "$line"
+        fi
+    done | base64 -d > $save_to
+    if [[ $response == STORED ]] ; then
+        sed -e "s#/usr/share/biosensor/#$CURRENT_SOLVER/share/biosensor/#g" "$save_to" > $config_file
+    fi
+    reply $response
+}
+
+
+################################################################################
+##  Main switch
+##
+case $COMMAND in
+    (check)             reply OK ;;
+    (store_config)      do_store_config "$@" ;;
+    (submit_simulation) do_submit_sim "$@" ;;
+    (delete_simulation) do_delete_sim "$@" ;;
+    (cancel_simulation) do_cancel_sim "$@" ;;
+    (simulation_status) do_sim_status "$@" ;;
+    (simulation_result) do_sim_result "$@" ;;
+    (*) error $ERR_BADCMD "Unknown command \"${COMMAND}\"."
+esac
+exit 0
