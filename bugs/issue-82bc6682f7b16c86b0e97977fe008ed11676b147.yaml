@@ -1,0 +1,18 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: Implement cluster_status command in the cluster command.
+desc: ""
+type: :task
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-21 04:39:19.686999 Z
+references: []
+
+id: 82bc6682f7b16c86b0e97977fe008ed11676b147
+log_events: 
+- - 2012-10-21 04:39:20.800699 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""

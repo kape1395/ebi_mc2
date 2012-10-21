@@ -5,8 +5,8 @@ type: :task
 component: ebi_mc2
 release: 
 reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
-status: :unstarted
-disposition: 
+status: :closed
+disposition: :fixed
 creation_time: 2012-10-19 04:08:39.160210 Z
 references: []
 
@@ -15,4 +15,8 @@ log_events:
 - - 2012-10-19 04:08:39.996321 Z
   - Karolis Petrauskas <k.petrauskas@gmail.com>
   - created
+  - ""
+- - 2012-10-21 04:38:15.071244 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - closed with disposition fixed
   - ""

@@ -1,0 +1,18 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: Create reference model type (content is sha1sum of the target model).
+desc: ""
+type: :task
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-21 04:40:09.353422 Z
+references: []
+
+id: 7af7151318702aaae2387ba95f78eb990dba7dcc
+log_events: 
+- - 2012-10-21 04:40:10.128152 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""

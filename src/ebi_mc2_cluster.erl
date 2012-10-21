@@ -125,7 +125,7 @@ response(_Ref, Response, From) ->
     chan,           % SSH Channel ID
     cmd,            % Command to execute on the server
     line_buf,       % Partial line got from the ssh server
-    known_sim_defs, % Known simulation definitions (sha1 sums of xml files).    TODO
+    known_sim_defs, % Known simulation definitions (sha1 sums of xml files).
     resp,           % Response parser.
     queue           % Corresponding queue.
 }).
@@ -218,7 +218,7 @@ handle_msg({check_cluster_status}, State) ->
 %%  Here we are getting cluster status from the response/3 function, invoked by the response parser.
 %%
 handle_msg({have_cluster_status, ClusterStatus}, State = #state{queue = Queue}) ->
-    ok = ebi_mc2_queue:cluster_state_updated(Queue, ClusterStatus),
+    ok = ebi_mc2_queue:cluster_status_updated(Queue, ClusterStatus),
     {ok, State};
 
 %%
@@ -263,18 +263,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%
 invoke_cluster_command({store_config_and_submit_simulation, Simulation, _Partition}, From, State) ->
     #simulation{model = Model} = Simulation,
+    #model{type = ModelType} = Model,
     #state{known_sim_defs = KnownSimDefs} = State,
     SimDefId = ebi:get_id(Model),
-    case lists:member(SimDefId, KnownSimDefs) of
-        true ->
-            {ok, NewState} = invoke_cluster_command({submit_simulation, Simulation}, From, State),
-            {noreply, NewState, ?TIMEOUT};
-        false ->
-            NewState = [SimDefId | KnownSimDefs],
-            {ok, StateAfterStore} = invoke_cluster_command({store_config, Simulation}, From, NewState),
-            {ok, StateAfterSubmit} = invoke_cluster_command({submit_simulation, Simulation}, From, StateAfterStore),
-            {noreply, StateAfterSubmit, ?TIMEOUT}
-    end;
+    NewState = case {lists:member(SimDefId, KnownSimDefs), ModelType} of
+        {true, _} ->
+            State;
+        {false, reference} ->
+            State;    % Hope its already stored.
+        {false, kp1_xml} ->
+            StateWithDimDefId = State#state{known_sim_defs = [SimDefId | KnownSimDefs]},
+            {ok, StateAfterStore} = invoke_cluster_command({store_config, Simulation}, From, StateWithDimDefId),
+            StateAfterStore
+    end,
+    {ok, StateAfterSubmit} = invoke_cluster_command({submit_simulation, Simulation}, From, NewState),
+    {noreply, StateAfterSubmit, ?TIMEOUT};
     
 invoke_cluster_command(CommandRequest, From, State) ->
     #state{cref = CRef, chan = Chan, resp = Resp} = State,

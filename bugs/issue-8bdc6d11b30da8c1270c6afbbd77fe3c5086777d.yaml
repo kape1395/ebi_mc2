@@ -1,0 +1,18 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: Implement persistent store.
+desc: ""
+type: :task
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-21 04:38:31.424760 Z
+references: []
+
+id: 8bdc6d11b30da8c1270c6afbbd77fe3c5086777d
+log_events: 
+- - 2012-10-21 04:38:32.445711 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""

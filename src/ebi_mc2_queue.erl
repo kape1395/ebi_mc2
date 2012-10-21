@@ -102,7 +102,7 @@
     unregister_simulation/2
 ]).
 -export([ %% API for ebi_mc2_cluster.
-    cluster_state_updated/2
+    cluster_status_updated/2
 ]).
 -export([ %% Callbacks for ebi_queue.
     start_link_spec/2,
@@ -140,9 +140,9 @@ start_link(Config = #config{name = Name}, Supervisor) ->
 %%  Invoked by the {@link ebi_mc2_cluster} periodically passing current state
 %%  of all cluster simulations.
 %%
--spec cluster_state_updated(pid(), term()) -> ok.
-cluster_state_updated(Queue, ClusterState) ->
-    ok = gen_server:cast(Queue, {ebi_mc2_queue, cluster_state_updated, ClusterState}),
+-spec cluster_status_updated(pid(), {{cluster_status, [{(fs|rt), SimulationId :: string(), Status :: string()}]}}) -> ok.
+cluster_status_updated(Queue, ClusterStatus) ->
+    ok = gen_server:cast(Queue, {ebi_mc2_queue, cluster_status_updated, ClusterStatus}),
     ok.
     
 
@@ -355,9 +355,25 @@ handle_cast({ebi_mc2_queue, unregister_simulation, SimulationId}, State) ->
     ok = sim_running_del(State#state.running, SimulationId),
     {noreply, State};
 
-handle_cast({ebi_mc2_queue, cluster_state_updated, ClusterState}, State = #state{running = RunningSims}) ->
+handle_cast({ebi_mc2_queue, cluster_status_updated, ClusterStatus}, State) ->
+    #state{running = RunningTable, store = StoreTable} = State,
+    {cluster_status, StatusEntries} = ClusterStatus,
+    RunningSims = lists:map(
+        fun ({SID, _Target}) -> {runs, SID} end,
+        ebi_mc2_queue_store:get_running(StoreTable)
+    ),
+    SortedEntries = lists:keysort(2, StatusEntries ++ RunningSims),
+    MergeFun = fun      % Join of RT status, FS status and running simulations tables.
+        ({fs, SID, FS}, [{SID, RT, _}  | AccTail]) -> [{SID, RT,        FS}        | AccTail]; 
+        ({fs, SID, FS}, Acc                      ) -> [{SID, undefined, FS}        | Acc]; 
+        ({rt, SID, RT}, [{SID, _, FS}  | AccTail]) -> [{SID, RT,        FS}        | AccTail]; 
+        ({rt, SID, RT}, Acc                      ) -> [{SID, RT, undefined}        | Acc];
+        ({runs, SID},   [{SID, RT, FS} | AccTail]) -> [{SID, RT, FS}               | AccTail];
+        ({runs, SID},   Acc                      ) -> [{SID, undefined, undefined} | Acc]
+    end,
+    ClusterStatusMerged = lists:foldl(MergeFun, [], SortedEntries),
     F = fun (SimulationStatus = {SimulationId, RuntimeStatus, FilesystemStatus}) ->
-        case sim_running_get(RunningSims, SimulationId) of
+        case sim_running_get(RunningTable, SimulationId) of
             {ok, PID} ->
                 ok = ebi_mc2_simulation:status_update(PID, SimulationId, RuntimeStatus, FilesystemStatus);
             {error, not_found} ->
@@ -367,11 +383,7 @@ handle_cast({ebi_mc2_queue, cluster_state_updated, ClusterState}, State = #state
                 ok
         end
     end,
-    ok = lists:foreach(F, ClusterState),
-    %
-    % TODO: It is possible, that some lost simulations will be reporting here.
-    %        For now, I don't know, how to avoid some race conditions (duplicate simulation processes).
-    %
+    ok = lists:foreach(F, ClusterStatusMerged),
     {noreply, State}.
 
 
