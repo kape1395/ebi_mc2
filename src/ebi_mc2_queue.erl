@@ -486,6 +486,7 @@ get_simulation_id(SimulationId) when is_list(SimulationId) ->
 %%  Starts new simulation
 %%
 start_simulation(SimulationSup, SimulationId, Target, Targets) ->
+    lager:info("Starting simulation ~s on target ~p.", [SimulationId, Target]),
     {ok, PID} = ebi_mc2_simulation_setsup:start_simulation(SimulationSup, SimulationId, self()),
     {ok, NewTargets} = update_available_target(Targets, {add, Target, SimulationId}),
     {ok, PID, NewTargets}.

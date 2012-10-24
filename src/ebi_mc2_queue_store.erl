@@ -107,7 +107,7 @@ set_status(Table, SimulationId, Status) ->
 %%  the same clusters to avoid duplicated simulations. 
 %%
 set_target(Table, SimulationId, Target = {_Cluster, _Partition}) ->
-    true = ets:update_element(Table, SimulationId, {5, Target}),
+    true = ets:update_element(Table, SimulationId, [{3, {running, assigned, false}}, {5, Target}]),
     ok.
 
 

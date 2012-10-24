@@ -48,6 +48,7 @@
 -spec start_link(#config_cluster{}, pid(), pid()) -> {ok, pid()} | term(). 
 start_link(Config, Queue, Supervisor) ->
     #config_cluster{
+        name = Name,
         ssh_host = Host,
         ssh_port = Port,
         ssh_user = User,
@@ -60,7 +61,9 @@ start_link(Config, Queue, Supervisor) ->
         {connect_timeout, ?TIMEOUT}
     ], ?TIMEOUT),
     {ok, Chan} = ssh_connection:session_channel(CRef, ?TIMEOUT),
-    ssh_channel:start_link(CRef, Chan, ?MODULE, {Config, CRef, Chan, Queue, Supervisor}).
+    {ok, PID} = ssh_channel:start_link(CRef, Chan, ?MODULE, {Config, CRef, Chan, Queue, Supervisor}),
+    register(Name, PID),
+    {ok, PID}.
 
 
 %%
@@ -206,7 +209,7 @@ handle_ssh_msg(Msg, State) ->
 %%  Initialize the response parser.
 %%
 handle_msg({start_cluster_resp, Supervisor}, State) ->
-    {ok, PID} = ebi_mc2_cluster_sup:start_cluster_resp(Supervisor, self()),
+    {ok, PID} = ebi_mc2_cluster_sup:start_cluster_resp(Supervisor, self()),     % TODO: Here "already started" error
     {ok, State#state{resp = PID}};
 
 %%
@@ -263,7 +266,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%  difference between call and cast operation.
 %%  The difference is in the response parses.
 %%
-invoke_cluster_command({store_config_and_submit_simulation, Simulation, _Partition}, From, State) ->
+invoke_cluster_command({store_config_and_submit_simulation, Simulation, Partition}, From, State) ->
+    lager:info("Command=store_config_and_submit_simulation", []),
     #simulation{model = Model} = Simulation,
     #model{type = ModelType} = Model,
     #state{known_sim_defs = KnownSimDefs} = State,
@@ -278,13 +282,14 @@ invoke_cluster_command({store_config_and_submit_simulation, Simulation, _Partiti
             {ok, StateAfterStore} = invoke_cluster_command({store_config, Simulation}, From, StateWithDimDefId),
             StateAfterStore
     end,
-    {ok, StateAfterSubmit} = invoke_cluster_command({submit_simulation, Simulation}, From, NewState),
+    {ok, StateAfterSubmit} = invoke_cluster_command({submit_simulation, Simulation, Partition}, From, NewState),
     {noreply, StateAfterSubmit, ?TIMEOUT};
     
-invoke_cluster_command(CommandRequest, From, State) ->
+invoke_cluster_command(CommandRequest, From, State) ->      % TODO: make everyting return {ok, State}
     #state{cref = CRef, chan = Chan, resp = Resp} = State,
     CallRef = ebi:get_id(unique),
     Command = element(1, CommandRequest),
+    lager:info("Command=~p, callref=~p", [Command, CallRef]),
     ok = ebi_mc2_cluster_resp:add_call(Resp, CallRef, Command, From),
     case CommandRequest of
         {store_config, #simulation{model = Model}} ->
@@ -308,7 +313,7 @@ invoke_cluster_command(CommandRequest, From, State) ->
                 [param_to_option(Param) || Param <- Params]  % params
             ]),
             ssh_connection:send(CRef, Chan, CmdLine),
-            {noreply, State, ?TIMEOUT};
+            {ok, State};
         {delete_simulation, SimulationId} ->
             CmdLine = make_cmd(State, CallRef, "delete_simulation", [SimulationId]),
             ssh_connection:send(CRef, Chan, CmdLine),

@@ -48,8 +48,13 @@
     handle_sync_event/4,
     handle_info/3
 ]).
+-include_lib("eunit/include/eunit.hrl").
 -include("ebi.hrl").
 -include("ebi_mc2.hrl").
+% TODO: Padaryti, kad cluster procesa gautu su kiekvienu kvietimu. O kam to reikia?
+%       Kaip po restarto procesai suzinos vienas apie kita?
+% TODO: Ismesti debug,
+% TODO: komandu apdorojima padaryti be papildomo send event.
 
 %% =============================================================================
 %%  API.
@@ -153,7 +158,7 @@ cluster_status({data, <<Type:2/binary, ":", SimulationId:40/binary, ":", StatusA
         binary_to_list(SimulationId),
         binary_to_list(Status)
     },
-    {next_state, simulation_result, StateData#state{res = [StatusRecord | Res]}}.
+    {next_state, cluster_status, StateData#state{res = [StatusRecord | Res]}}.
 
 
 %%
@@ -215,13 +220,20 @@ simulation_result({data, MsgBase64}, StateData = #state{res = ResultLines}) ->
 %%
 handle_sync_event({add_call, CallRef, Command, From}, _SyncFrom, idle, StateData) ->
     Cmd = #cmd{call_ref = CallRef, name = Command, from = From},
-    {reply, ok, Command, StateData#state{cmd = Cmd}}.
+    ?debugFmt("CR01=~p~n", [CallRef]),
+    {reply, ok, Command, StateData#state{cmd = Cmd}};
+
+handle_sync_event({add_call, CallRef, Command, From}, _SyncFrom, StateName, StateData = #state{cmds = Cmds}) ->
+    Cmd = #cmd{call_ref = CallRef, name = Command, from = From},
+    ?debugFmt("CR02=~p~n", [CallRef]),
+    {reply, ok, StateName, StateData#state{cmds = queue:snoc(Cmds, Cmd)}}.
 
 
 %%
 %%  Handles response line event.
 %%
 handle_event({line, ResponseLine}, StateName, StateData = #state{cmd = Command}) ->
+    ?debugFmt("{line, ~p}, command=~p~n", [ResponseLine, Command]),
     case ResponseLine of
         <<"#CLUSTER:LGN(0000000000000000000000000000000000000000)==>", _Msg/binary>> ->
             {next_state, StateName, StateData};
@@ -282,6 +294,7 @@ respond_and_process_next(Response, StateData = #state{cluster = Cluster, cmd = C
             NewCommand = queue:head(Commands),
             NewStateData = StateData#state{cmd = NewCommand, res = undefined, cmds = queue:tail(Commands)},
             #cmd{name = NewCommandName} = NewCommand,
+            ?debugFmt("NEXT cn=~p, state=~p~n", [NewCommandName, NewStateData]),
             {next_state, NewCommandName, NewStateData}
     end.
 

@@ -161,6 +161,9 @@ initializing({initialize}, State) ->
         undefined ->
             %% This is first start
             do_start(FullState);
+        assigned ->
+            %% This is first start, the previous start was unsuccessful.
+            do_start(FullState);
         _ ->
             %% Here we have process restarts.
             {next_state, SavedStateName, FullState}

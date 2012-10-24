@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model
+    xmlns  ="http://karolis.5grupe.lt/biosensor/model"
+    xmlns:b="http://karolis.5grupe.lt/biosensor/model/bound"
+    xmlns:r="http://karolis.5grupe.lt/biosensor/model/reaction"
+    xmlns:s="http://karolis.5grupe.lt/biosensor/model/solver"
+    xmlns:t="http://karolis.5grupe.lt/biosensor/model/transducer"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="
+        http://karolis.5grupe.lt/biosensor/model            /usr/share/biosensor/Model.xsd
+        http://karolis.5grupe.lt/biosensor/model/bound      /usr/share/biosensor/ModelBound.xsd
+        http://karolis.5grupe.lt/biosensor/model/reaction   /usr/share/biosensor/ModelReaction.xsd
+        http://karolis.5grupe.lt/biosensor/model/solver     /usr/share/biosensor/ModelSolver.xsd
+        http://karolis.5grupe.lt/biosensor/model/transducer /usr/share/biosensor/ModelTransducer.xsd
+        "
+    coordinateSystem="Cartesian">
+
+
+    <axis name="x">
+        <point position="x_0"/>
+        <point position="x_1"/>
+    </axis>
+    <axis name="y">
+        <point position="y_0"/>
+        <point position="y_1"/>
+        <point position="y_2"/>
+        <point position="y_3"/>
+        <point position="y_4"/>
+    </axis>
+
+
+    <substance name="S"/>
+    <substance name="E_{ox}"/>
+    <substance name="E_{red}"/>
+
+
+    <reaction name="R_1" xsi:type="r:ReductionOxidation" rate="k_1">
+        <r:substrate name="E_{ox}"/>
+        <r:substrate name="S"/>
+        <r:product name="E_{red}"/>
+    </reaction>
+    <reaction name="R_2" xsi:type="r:ReductionOxidation" rate="k_2">
+        <r:substrate name="E_{red}"/>
+        <r:product name="E_{ox}"/>
+    </reaction>
+
+
+    <medium name="\Omega_1">
+        <substance name="S" diffusion="D_1" initial="0"/>
+        <substance name="E_{ox}" initial="E_0"/>
+        <substance name="E_{red}" initial="0"/>
+        <reaction name="R_1"/>
+        <area top="y_0" bottom="y_1" left="x_0" right="x_1"/>
+    </medium>
+    <medium name="\Omega_2" diffusionRatio="alpha">
+        <substance name="S" diffusion="D_2" initial="0"/>
+        <substance name="E_{ox}" initial="E_1"/>
+        <substance name="E_{red}" initial="0"/>
+        <reaction name="R_1"/>
+        <reaction name="R_2"/>
+        <area top="y_1" bottom="y_2" left="x_0" right="x_1"/>
+    </medium>
+    <medium name="\Omega_3" diffusionRatio="alpha">
+        <substance name="S" diffusion="D_3" initial="0"/>
+        <area top="y_2" bottom="y_3" left="x_0" right="x_1"/>
+    </medium>
+    <medium name="\Omega_4">
+        <substance name="S" diffusion="D_4" initial="0"/>
+        <area top="y_3" bottom="y_4" left="x_0" right="x_1"/>
+    </medium>
+
+
+    <bound from="x_0" to="x_1" at="y_4" name="ExternalBound">
+        <substance name="S" xsi:type="b:Constant" concentration="S_0"/>
+    </bound>
+
+
+    <transducer name="electrode" xsi:type="t:CompositeElectrode">
+        <t:transducer
+            name="injectedElectrode"
+            xsi:type="t:InjectedElectrode"
+            medium="\Omega_2"
+            reaction="R_2"
+        />
+    </transducer>
+
+
+    <!-- Geometry -->
+    <symbol name="x_0" value="0.0"      dimension="m"/>
+    <symbol name="x_1" value="1.0"      dimension="m"/>
+    <symbol name="y_0" value="0.0"      dimension="m"/>
+    <symbol name="y_1" value="0.001E-4" dimension="m"/>
+    <symbol name="y_2" value="0.005E-4" dimension="m"/>
+    <symbol name="y_3" value="0.105E-4" dimension="m"/>
+    <symbol name="y_4" value="1.605E-4" dimension="m"/>
+
+    <!-- Diffusion coefficients -->
+    <symbol name="D_1" value="3.00E-10" dimension="m^2/s"/>
+    <!--symbol name="D_2" value="0.75E-10" dimension="m^2/s"/-->
+    <!--symbol name="D_3" value="1.50E-10" dimension="m^2/s"/-->
+    <symbol name="D_2" value="1.500E-10" dimension="m^2/s"/>
+    <symbol name="D_3" value="1.875E-11" dimension="m^2/s"/>
+    <symbol name="D_4" value="6.00E-10" dimension="m^2/s"/>
+    <symbol name="alpha" value="2" dimension="1"/>
+
+    <!-- Concentrations -->
+    <symbol name="E_0" value="4.55E-2"  dimension="mol/m^3"/>
+    <symbol name="E_1" value="2.275E-2" dimension="mol/m^3"/>
+    <symbol name="S_0" value="5.0"    dimension="mol/m^3"/>
+    <symbol name="0"   value="0.0"    dimension="mol/m^3"/>
+
+    <!-- Reaction rates -->
+    <symbol name="k_1" value="6.9E2" dimension="m^3/mol*s"/>
+    <symbol name="k_2" value="6.9E4" dimension="1/s"/>
+
+
+    <solver xsi:type="s:Implicit1D" timeStep="1E-5">
+        <output name="response" xsi:type="s:Kinetic" stepCount="1000">
+            <s:output name="currentDensity" xsi:type="s:CurrentDensity"/>
+        </output>
+        <output name="substanceConcentrations" xsi:type="s:Kinetic" stepCount="10000">
+            <s:output name="concentrations"     xsi:type="s:ConcentrationProfile" precision="12"/>
+            <s:output name="avgConcentrations"  xsi:type="s:AveragedConcentration"/>
+            <s:output name="avgConcInOmega_1"   xsi:type="s:AveragedConcentration" medium="\Omega_1"/>
+            <s:output name="avgConcInOmega_2"   xsi:type="s:AveragedConcentration" medium="\Omega_2"/>
+            <s:output name="avgConcInOmega_3"   xsi:type="s:AveragedConcentration" medium="\Omega_3"/>
+            <s:output name="avgConcInOmega_4"   xsi:type="s:AveragedConcentration" medium="\Omega_4"/>
+        </output>
+        <s:axis from="x_0" to="x_1" xsi:type="s:ConstantAxisPart" stepCount="2"/>
+        <s:axis from="y_0" to="y_1" xsi:type="s:ConstantAxisPart" stepCount="50"/>
+        <s:axis from="y_1" to="y_2" xsi:type="s:ConstantAxisPart" stepCount="50"/>
+        <s:axis from="y_2" to="y_3" xsi:type="s:ConstantAxisPart" stepCount="50"/>
+        <s:axis from="y_3" to="y_4" xsi:type="s:ConstantAxisPart" stepCount="50"/>
+        <s:stopCondition
+            xsi:type="s:StopConditionValidAfter"
+            stepCount="1000">
+            <s:stopCondition
+                xsi:type="s:CurrentDensityGradient"
+                lessThan="0.01"
+                normalized="true"
+            />
+        </s:stopCondition>
+        <s:stopCondition xsi:type="s:FailIfAbove" stepCount="500000000"/>
+        <s:stopCondition xsi:type="s:FailIfInvalidConcentrations"/>
+        <s:stopCondition
+            xsi:type="s:FailISumOfConcentrationsNonConst"
+            medium="\Omega_1" sum="E_0" error="1E-6">
+            <s:substance>E_{ox}</s:substance>
+            <s:substance>E_{red}</s:substance>
+        </s:stopCondition>
+        <s:stopCondition
+            xsi:type="s:FailISumOfConcentrationsNonConst"
+            medium="\Omega_2" sum="E_1" error="1E-6">
+            <s:substance>E_{ox}</s:substance>
+            <s:substance>E_{red}</s:substance>
+        </s:stopCondition>
+    </solver>
+
+</model>

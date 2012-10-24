@@ -3,8 +3,10 @@
 .project
 .settings/
 .ditz-config
-logs/
 deps/
 ebin/
-src/ebi_mc2.app.src
-
+logs/
+log/
+console.log*
+error.log*
+ttb_last_config
