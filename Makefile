@@ -7,6 +7,9 @@ itest: compile
 	$(REBAR) ct apps=ebi_mc2
 
 clean:
+	$(REBAR) clean apps=ebi_mc2
+
+clean-all:
 	$(REBAR) clean
 
 test:

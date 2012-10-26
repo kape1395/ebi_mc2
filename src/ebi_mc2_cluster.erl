@@ -23,18 +23,18 @@
 -module(ebi_mc2_cluster).
 -behaviour(ssh_channel).
 -export([ % API
-    start_link/3,
+    start_link/2,
     submit_simulation/3,
     delete_simulation/2,
     cancel_simulation/2,
     simulation_result/2
 ]).
--export([response/3]).
 -export([init/1, terminate/2, handle_ssh_msg/2, handle_msg/2]).
 -export([handle_call/3, handle_cast/2, code_change/3]).
 -include("ebi.hrl").
 -include("ebi_mc2.hrl").
 -define(TIMEOUT, 10000).
+-define(CHECK_STATUS_FROM_ME, 'ebi_mc2_cluster$check_status_from_me').
 
 
 %% =============================================================================
@@ -45,8 +45,8 @@
 %%
 %%  Start the cluster connection.
 %%
--spec start_link(#config_cluster{}, pid(), pid()) -> {ok, pid()} | term(). 
-start_link(Config, Queue, Supervisor) ->
+-spec start_link(#config_cluster{}, pid()) -> {ok, pid()} | term(). 
+start_link(Config, Queue) ->
     #config_cluster{
         name = Name,
         ssh_host = Host,
@@ -61,7 +61,7 @@ start_link(Config, Queue, Supervisor) ->
         {connect_timeout, ?TIMEOUT}
     ], ?TIMEOUT),
     {ok, Chan} = ssh_connection:session_channel(CRef, ?TIMEOUT),
-    {ok, PID} = ssh_channel:start_link(CRef, Chan, ?MODULE, {Config, CRef, Chan, Queue, Supervisor}),
+    {ok, PID} = ssh_channel:start_link(CRef, Chan, ?MODULE, {Config, CRef, Chan, Queue}),
     register(Name, PID),
     {ok, PID}.
 
@@ -97,24 +97,6 @@ simulation_result(Ref, SimulationId) ->
     ssh_channel:call(Ref, {simulation_result, SimulationId}).
 
 
-%% =============================================================================
-%%  API for ebi_mc2_cluster_resp.
-%% =============================================================================
-
-
-%%
-%%  Invoked by the response parser when the call response is collected.
-%%
--spec response(atom(), term(), term()) -> ok.
-response(Ref, ClusterStatus = {cluster_status, _}, ?MODULE) ->
-    Ref ! {have_cluster_status, ClusterStatus},
-    ok;
-
-response(_Ref, Response, From) ->
-    ssh_channel:reply(From, Response),
-    ok.
-
-
 
 %% =============================================================================
 %%  Internal state
@@ -129,7 +111,7 @@ response(_Ref, Response, From) ->
     cmd,            % Command to execute on the server
     line_buf,       % Partial line got from the ssh server
     known_sim_defs, % Known simulation definitions (sha1 sums of xml files).
-    resp,           % Response parser.
+    resp,           % Response parser state.
     queue           % Corresponding queue.
 }).
 
@@ -143,10 +125,9 @@ response(_Ref, Response, From) ->
 %%
 %%  Initialization.
 %%
-init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval}, CRef, Chan, Queue, Supervisor}) ->
+init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval}, CRef, Chan, Queue}) ->
     CheckStatusMsg = {check_cluster_status},
     ok = ssh_connection:shell(CRef, Chan),
-    self() ! {start_cluster_resp, Supervisor},
     self() ! CheckStatusMsg,
     {ok, TRef} = timer:send_interval(Interval, CheckStatusMsg),
     State = #state{
@@ -157,7 +138,7 @@ init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval
         cmd = Cmd,
         line_buf = <<>>,
         known_sim_defs = [],
-        resp = undefined,
+        resp = ebi_mc2_cluster_resp:init(),
         queue = Queue
     },
     {ok, State}.
@@ -197,8 +178,17 @@ handle_ssh_msg({ssh_cm, _Ref, {data, _Chan, _Type, BinaryData}}, State) ->
     #state{line_buf = LineBuf, resp = Resp} = State,
     DataWithBuf = <<LineBuf/binary, BinaryData/binary>>,
     [ PartialLine | FullLines ] = lists:reverse(binary:split(DataWithBuf, <<"\n">>, [global])),
-    ok = ebi_mc2_cluster_resp:response_lines(Resp, lists:reverse(FullLines)),
-    {ok, State#state{line_buf = PartialLine}};
+    {ok, Parsed, NewResp} = ebi_mc2_cluster_resp:parse_lines(lists:reverse(FullLines), Resp),
+    HandleParsed = fun (ParsedResponse) ->
+        case ParsedResponse of
+            {response, Response = {cluster_status, _}, ?CHECK_STATUS_FROM_ME} ->
+                self() ! {have_cluster_status, Response};
+            {response, Response, From} ->
+                ssh_channel:reply(From, Response)
+        end
+    end,
+    lists:foreach(HandleParsed, Parsed),
+    {ok, State#state{line_buf = PartialLine, resp = NewResp}};
 
 handle_ssh_msg(Msg, State) ->
     error_logger:info_msg("~s: handle_ssh_msg(msg=~p)~n", [?MODULE, Msg]),
@@ -206,17 +196,10 @@ handle_ssh_msg(Msg, State) ->
 
 
 %%
-%%  Initialize the response parser.
-%%
-handle_msg({start_cluster_resp, Supervisor}, State) ->
-    {ok, PID} = ebi_mc2_cluster_sup:start_cluster_resp(Supervisor, self()),     % TODO: Here "already started" error
-    {ok, State#state{resp = PID}};
-
-%%
 %%  Here we get notification from timer to check the cluster state.
 %%
 handle_msg({check_cluster_status}, State) ->
-    {noreply, NewState, _Timeout} = invoke_cluster_command({cluster_status}, ?MODULE, State),
+    {noreply, NewState, _Timeout} = invoke_cluster_command({cluster_status}, ?CHECK_STATUS_FROM_ME, State),
     {ok, NewState};
 
 %%
