@@ -25,65 +25,13 @@
 %%      simulation_result
 %%
 -module(ebi_mc2_cluster_resp).
--behaviour(gen_fsm).
 -export([   % API
-    start_link/1,
-    add_call/4,
-    response_lines/2
+    init/0,
+    add_call/2,
+    parse_lines/2
 ]).
--export([   % FSM states
-    idle/2,
-    store_config/2,
-    cluster_status/2,
-    submit_simulation/2,
-    delete_simulation/2,
-    cancel_simulation/2,
-    simulation_result/2
-]).
--export([   % FSM other callbacks
-    init/1,
-    terminate/3,
-    code_change/4,
-    handle_event/3,
-    handle_sync_event/4,
-    handle_info/3
-]).
--include_lib("eunit/include/eunit.hrl").
 -include("ebi.hrl").
 -include("ebi_mc2.hrl").
-% TODO: Padaryti, kad cluster procesa gautu su kiekvienu kvietimu. O kam to reikia?
-%       Kaip po restarto procesai suzinos vienas apie kita?
-% TODO: Ismesti debug,
-% TODO: komandu apdorojima padaryti be papildomo send event.
-
-%% =============================================================================
-%%  API.
-%% =============================================================================
-
-
-%%
-%%  Start the cluster connection.
-%%
-start_link(Cluster) ->
-    gen_fsm:start_link(?MODULE, {Cluster}, []).
-
-
-%%
-%%  Add command who's response should be parsed.
-%%
--spec add_call(pid(), string(), atom(), term()) -> ok.
-add_call(PID, CallRef, Command, From) ->
-    gen_fsm:sync_send_all_state_event(PID, {add_call, CallRef, Command, From}).
-
-
-%%
-%%  Parse response line.
-%%
--spec response_lines(pid(), [binary()]) -> ok.
-response_lines(PID, ResponseLines) ->
-    lists:foreach(fun (L) -> gen_fsm:send_all_state_event(PID, {line, L}) end, ResponseLines),
-    ok.
-
 
 
 %% =============================================================================
@@ -96,11 +44,53 @@ response_lines(PID, ResponseLines) ->
     from            % Originator of the command.
 }).
 -record(state, {
-    cluster,        % Cluster, which commands are processes
-    cmd :: #cmd{},  % Current command.
-    res,            % Response of the command `cmd'.
+    res,            % Response of the command `cmd'
+    cmd :: #cmd{},  % Current command name (head of cmds).
     cmds            % Queue of commands.
 }).
+
+
+
+%% =============================================================================
+%%  API.
+%% =============================================================================
+
+%%
+%%  Initialization.
+%%
+init() ->
+    State = #state{
+        res = undefined,
+        cmd = undefined,
+        cmds = queue:new()
+    },
+    {ok, State}.
+
+
+%%
+%%  Add command who's response should be parsed.
+%%
+add_call({CallRef, Command, From}, State = #state{cmd = CurrentCmd, cmds = Cmds}) ->
+    NewCurrentCommand = case CurrentCmd of
+        undefined -> Command;
+        _ -> CurrentCmd
+    end,
+    Cmd = #cmd{call_ref = CallRef, name = Command, from = From},
+    NewState = State#state{
+        cmd = NewCurrentCommand,
+        cmds = queue:snoc(Cmds, Cmd)
+    },
+    {ok, NewState}.
+
+
+%%
+%%  Parse response line.
+%%
+-spec parse_lines([binary()], #state{}) -> {ok, list(), #state{}}.
+parse_lines(RawResponseLines, State) ->
+    InputLines = [{line, L} || L <- RawResponseLines],
+    {ok, ParsedResponses, NewState} = lists:foldl(fun parse/2, {ok, [], State}, InputLines),
+    {ok, lists:reverse(ParsedResponses), NewState}.
 
 
 
@@ -110,164 +100,153 @@ response_lines(PID, ResponseLines) ->
 
 
 %%
-%%  Initialization.
+%%  Parses raw input.
 %%
-init({Cluster}) ->
-    StateData = #state{
-        cluster = Cluster,
-        cmd = undefined,
-        cmds = queue:new()
-    },
-    {ok, idle, StateData}.
+parse({line, ResponseLine}, {ok, Parsed, State = #state{cmds = Commands}}) ->
+    case ResponseLine of
+        <<"#CLUSTER:LGN(0000000000000000000000000000000000000000)==>", _Msg/binary>> ->
+            {ok, Parsed, State};
 
+        <<"#CLUSTER:OUT(", CallRefBin:40/binary, ")==>", Msg/binary>> ->
+            CallRef = binary:bin_to_list(CallRefBin),
+            #cmd{call_ref = CommandCallRef} = queue:head(Commands),
+            case CallRef of
+                CommandCallRef ->
+                    parse({out, Msg}, {ok, Parsed, State});
+                _ ->
+                    log_err("line(OUT): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
+                    {error, Parsed, State}
+            end;
+
+        <<"#CLUSTER:ERR(", CallRefBin:40/binary, ")==>", ErrCode:3/binary, ":", ErrMsg/binary>> ->
+            log_err("line(ERR): ref=~p, code=~p, msg=~p", [CallRefBin, ErrCode, ErrMsg]),
+            CallRef = binary:bin_to_list(CallRefBin),
+            #cmd{call_ref = CommandCallRef} = queue:head(Commands),
+            case CallRef of
+                CommandCallRef ->
+                    respond_and_process_next(error, {ok, Parsed, State});
+                _ ->
+                    log_err("line(ERR): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
+                    {error, Parsed, State}
+            end;
+
+        <<"#DATA:", Msg/binary>> ->
+            parse({data, Msg}, {ok, Parsed, State});
+
+        <<"#", _Msg/binary>> ->
+            log_err("line(#??): ~p", [ResponseLine]),
+            {ok, Parsed, State};
+
+        _ ->
+            log_err("line(???): ~p", [ResponseLine]),
+            {ok, Parsed, State}
+    end;
 
 %%
 %%  Handles IDLE state.
 %%
-idle(_Event, StateData) ->
-    {stop, error, idle, StateData}.
+parse(_Event, {ok, Parsed, State = #state{cmd = undefined}}) ->
+    {error, Parsed, State};
 
 
 %%
 %%  Handles output of the "store_config" command.
 %%
-store_config({out, <<"STORED">>}, StateData) ->
-    respond_and_process_next(stored, StateData);
+parse(Event, {ok, Parsed, State = #state{cmd = store_config}}) ->
+    Response = case Event of
+        {out, <<"STORED">>} ->
+            stored;
 
-store_config({out, <<"EXISTING">>}, StateData) ->
-    respond_and_process_next(existing, StateData).
+        {out, <<"EXISTING">>} ->
+            existing
+    end,
+    respond_and_process_next(Response, {ok, Parsed, State});
 
 
 %%
 %%  Handles output of the "cluster_status" command.
 %%
-cluster_status({out, <<"CLUSTER_STATUS:START">>}, StateData) ->
-    {next_state, cluster_status, StateData#state{res = []}};
-
-cluster_status({out, <<"CLUSTER_STATUS:END">>}, StateData = #state{res = Res}) ->
-    respond_and_process_next({cluster_status, Res}, StateData#state{res = undefined});
-
-cluster_status({data, <<Type:2/binary, ":", SimulationId:40/binary, ":", StatusAndJobId/binary>>}, StateData) ->
-    #state{res = Res} = StateData,
-    StatusType = case Type of
-        <<"FS">> -> fs;
-        <<"RT">> -> rt
-    end,
-    [Status, _JobId] = binary:split(StatusAndJobId, <<":">>),
-    StatusRecord = {StatusType,
-        binary_to_list(SimulationId),
-        binary_to_list(Status)
-    },
-    {next_state, cluster_status, StateData#state{res = [StatusRecord | Res]}}.
+parse(Event, {ok, Parsed, State = #state{cmd = cluster_status, res = Res}}) ->
+    case Event of
+        {out, <<"CLUSTER_STATUS:START">>} ->
+            {ok, Parsed, State#state{res = []}};
+        
+        {out, <<"CLUSTER_STATUS:END">>} ->
+            respond_and_process_next({cluster_status, Res}, {ok, Parsed, State#state{res = undefined}});
+        
+        {data, <<Type:2/binary, ":", SimulationId:40/binary, ":", StatusAndJobId/binary>>} ->
+            StatusType = case Type of
+                <<"FS">> -> fs;
+                <<"RT">> -> rt
+            end,
+            [Status, _JobId] = binary:split(StatusAndJobId, <<":">>),
+            StatusRecord = {StatusType,
+                binary_to_list(SimulationId),
+                binary_to_list(Status)
+            },
+            {ok, Parsed, State#state{res = [StatusRecord | Res]}}
+    end;
 
 
 %%
 %%  Handles output of the "submit_simulation" command.
 %%
-submit_simulation({out, <<"SUBMITTED:", _SimulationId:40/binary, ":", _JobId/binary>>}, StateData) ->
-    respond_and_process_next(ok, StateData);
+parse(Event, {ok, Parsed, State = #state{cmd = submit_simulation}}) ->
+    ok = case Event of
+        {out, <<"SUBMITTED:", _SimulationId:40/binary, ":", _JobId/binary>>} ->
+            ok;
 
-submit_simulation({out, <<"DUPLICATE:", _SimulationId:40/binary>>}, StateData) ->
-    respond_and_process_next(ok, StateData).
+        {out, <<"DUPLICATE:", _SimulationId:40/binary>>} ->
+            ok
+    end,
+    respond_and_process_next(ok, {ok, Parsed, State});
 
 
 %%
 %%  Handles output of the "delete_simulation" command.
 %%
-delete_simulation({out, <<"DELETED:", _SimulationId:40/binary>>}, StateData) ->
-    respond_and_process_next(ok, StateData);
+parse(Event, {ok, Parsed, State = #state{cmd = delete_simulation}}) ->
+    case Event of
+        {out, <<"DELETED:", _SimulationId:40/binary>>} ->
+            ok;
 
-delete_simulation({out, <<"DELETE:", SimulationId:40/binary, ":SIM_RUNNING">>}, StateData) ->
-    log_err("Simulation ~s not deleted (still running)", [SimulationId]),
-    respond_and_process_next(ok, StateData).
+        {out, <<"DELETE:", SimulationId:40/binary, ":SIM_RUNNING">>} ->
+            log_err("Simulation ~s not deleted (still running)", [SimulationId])
+    end,
+    respond_and_process_next(ok, {ok, Parsed, State});
 
 
 %%
 %%  Handles output of the "cancel_simulation" command.
 %%
-cancel_simulation({out, <<"CANCELLED:", _SimulationId:40/binary>>}, StateData) ->
-    respond_and_process_next(ok, StateData).
+parse(Event, {ok, Parsed, State = #state{cmd = cancel_simulation}}) ->
+    case Event of
+        {out, <<"CANCELED:", _SimulationId:40/binary>>} ->
+            ok
+    end,
+    respond_and_process_next(ok, {ok, Parsed, State});
 
 
 %%
 %%  Handles output of the "simulation_result" command.
 %%
-simulation_result({out, <<"RESULT:", _SimulationId:40/binary, ":SIM_RUNNING">>}, StateData) ->
-    respond_and_process_next(error, StateData);
+parse(Event, {ok, Parsed, State = #state{cmd = simulation_result, res = Res}}) ->
+    case Event of
+        {out, <<"RESULT:", _SimulationId:40/binary, ":SIM_RUNNING">>} ->
+            respond_and_process_next({error, running}, {ok, Parsed, State});
 
-simulation_result({out, <<"RESULT:", _SimulationId:40/binary, ":NOT_FOUND">>}, StateData) ->
-    respond_and_process_next(error, StateData);
+        {out, <<"RESULT:", _SimulationId:40/binary, ":NOT_FOUND">>} ->
+            respond_and_process_next({error, not_found}, {ok, Parsed, State});
 
-simulation_result({out, <<"RESULT:", _SimulationId:40/binary, ":START">>}, StateData) ->
-    {next_state, simulation_result, StateData#state{res = []}};
+        {out, <<"RESULT:", _SimulationId:40/binary, ":START">>} ->
+            {ok, Parsed, State#state{res = []}};
 
-simulation_result({out, <<"RESULT:", _SimulationId:40/binary, ":END">>}, StateData = #state{res = ResultLines}) ->
-    respond_and_process_next(lists:reverse(ResultLines), StateData#state{res = undefined});
+        {out, <<"RESULT:", _SimulationId:40/binary, ":END">>} ->
+            respond_and_process_next(lists:reverse(Res), {ok, Parsed, State#state{res = undefined}});
 
-simulation_result({data, MsgBase64}, StateData = #state{res = ResultLines}) ->
-    DecodedMsg = base64:decode(MsgBase64),
-    {next_state, simulation_result, StateData#state{res = [DecodedMsg | ResultLines]}}.
-
-
-
-%% =============================================================================
-%%  FSM all state events.
-%% =============================================================================
-
-
-%%
-%%  Synchronous all state events: add_call.
-%%
-handle_sync_event({add_call, CallRef, Command, From}, _SyncFrom, idle, StateData) ->
-    Cmd = #cmd{call_ref = CallRef, name = Command, from = From},
-    ?debugFmt("CR01=~p~n", [CallRef]),
-    {reply, ok, Command, StateData#state{cmd = Cmd}};
-
-handle_sync_event({add_call, CallRef, Command, From}, _SyncFrom, StateName, StateData = #state{cmds = Cmds}) ->
-    Cmd = #cmd{call_ref = CallRef, name = Command, from = From},
-    ?debugFmt("CR02=~p~n", [CallRef]),
-    {reply, ok, StateName, StateData#state{cmds = queue:snoc(Cmds, Cmd)}}.
-
-
-%%
-%%  Handles response line event.
-%%
-handle_event({line, ResponseLine}, StateName, StateData = #state{cmd = Command}) ->
-    ?debugFmt("{line, ~p}, command=~p~n", [ResponseLine, Command]),
-    case ResponseLine of
-        <<"#CLUSTER:LGN(0000000000000000000000000000000000000000)==>", _Msg/binary>> ->
-            {next_state, StateName, StateData};
-        <<"#CLUSTER:OUT(", CallRefBin:40/binary, ")==>", Msg/binary>> ->
-            CallRef = binary:bin_to_list(CallRefBin),
-            #cmd{call_ref = CommandCallRef} = Command,
-            case CallRef of
-                CommandCallRef ->
-                    gen_fsm:send_event(self(), {out, Msg}),
-                    {next_state, StateName, StateData};
-                _ ->
-                    log_err("line(OUT): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
-                    {stop, error, StateName, StateData}
-            end;
-        <<"#CLUSTER:ERR(", CallRefBin:40/binary, ")==>", ErrCode:3/binary, ":", ErrMsg/binary>> ->
-            log_err("line(ERR): ref=~p, code=~p, msg=~p", [CallRefBin, ErrCode, ErrMsg]),
-            CallRef = binary:bin_to_list(CallRefBin),
-            #cmd{call_ref = CommandCallRef} = Command,
-            case CallRef of
-                CommandCallRef ->
-                    respond_and_process_next(error, StateData);
-                _ ->
-                    log_err("line(ERR): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
-                    {stop, error, StateName, StateData}
-            end;
-        <<"#DATA:", MsgBase64/binary>> ->
-            gen_fsm:send_event(self(), {data, MsgBase64}),
-            {next_state, StateName, StateData};
-        <<"#", _Msg/binary>> ->
-            log_err("line(#??): ~p", [ResponseLine]),
-            {next_state, StateName, StateData};
-        _ ->
-            log_err("line(???): ~p", [ResponseLine]),
-            {next_state, StateName, StateData}
+        {data, MsgBase64} ->
+            DecodedMsg = base64:decode(MsgBase64),
+            {ok, Parsed, State#state{res = [DecodedMsg | Res]}}
     end.
 
 
@@ -280,22 +259,21 @@ handle_event({line, ResponseLine}, StateName, StateData = #state{cmd = Command})
 %%
 %%  Send the call response to the cluster and proceed with next command. 
 %%
-respond_and_process_next(Response, StateData = #state{cluster = Cluster, cmd = Command, cmds = Commands}) ->
-    case Command of
+respond_and_process_next(Response, {ok, Parsed, State = #state{cmds = Commands}}) ->
+    Command = queue:head(Commands),
+    NewCommands = queue:tail(Commands),
+    NewParsed = case Command of
         #cmd{from = undefined} ->
-            ok;
+            Parsed;
         #cmd{from = From} ->
-            ok = ebi_mc2_cluster:response(Cluster, Response, From)
+            [{response, Response, From} | Parsed]
     end,
-    case queue:is_empty(Commands) of
+    case queue:is_empty(NewCommands) of
         true ->
-            {next_state, idle, StateData#state{cmd = undefined, res = undefined}};
+            {ok, NewParsed, State#state{cmd = undefined, cmds = NewCommands}};
         false ->
-            NewCommand = queue:head(Commands),
-            NewStateData = StateData#state{cmd = NewCommand, res = undefined, cmds = queue:tail(Commands)},
-            #cmd{name = NewCommandName} = NewCommand,
-            ?debugFmt("NEXT cn=~p, state=~p~n", [NewCommandName, NewStateData]),
-            {next_state, NewCommandName, NewStateData}
+            #cmd{name = NewCommandName} = queue:head(NewCommands),
+            {ok, NewParsed, State#state{cmd = NewCommandName, cmds = NewCommands, res = undefined}}
     end.
 
 
@@ -304,23 +282,4 @@ respond_and_process_next(Response, StateData = #state{cluster = Cluster, cmd = C
 %%
 log_err(Msg, Args) ->
     error_logger:error_msg("~s: " ++ Msg ++ "~n", [?MODULE | Args]).
-
-
-
-%% =============================================================================
-%%  Other FSM callbacks.
-%% =============================================================================
-
-
-handle_info(_Event, _StateName, StateData) ->
-    {stop, error, StateData}.
-
-
-terminate(_Reason, _StateName, _StateData) ->
-    ok.
-
-
-code_change(_OldVsn, StateName, StateData, _Extra) ->
-    {ok, StateName, StateData}.
-
 
