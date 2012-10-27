@@ -130,6 +130,7 @@ init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval
     ok = ssh_connection:shell(CRef, Chan),
     self() ! CheckStatusMsg,
     {ok, TRef} = timer:send_interval(Interval, CheckStatusMsg),
+    {ok, Resp} = ebi_mc2_cluster_resp:init(),
     State = #state{
         cfg = Config,
         tref = TRef,
@@ -138,7 +139,7 @@ init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval
         cmd = Cmd,
         line_buf = <<>>,
         known_sim_defs = [],
-        resp = ebi_mc2_cluster_resp:init(),
+        resp = Resp,
         queue = Queue
     },
     {ok, State}.
@@ -273,42 +274,43 @@ invoke_cluster_command(CommandRequest, From, State) ->      % TODO: make everyti
     CallRef = ebi:get_id(unique),
     Command = element(1, CommandRequest),
     lager:info("Command=~p, callref=~p", [Command, CallRef]),
-    ok = ebi_mc2_cluster_resp:add_call(Resp, CallRef, Command, From),
+    {ok, NewResp} = ebi_mc2_cluster_resp:add_call({CallRef, Command, From}, Resp),
+    NewState = State#state{resp = NewResp},
     case CommandRequest of
         {store_config, #simulation{model = Model}} ->
             #model{definition = ConfigData} = Model,
             ConfigName = ebi:get_id(Model),
-            CmdLine = make_cmd(State, CallRef, "store_config", [ConfigName]),
+            CmdLine = make_cmd(NewState, CallRef, "store_config", [ConfigName]),
             ssh_connection:send(CRef, Chan, CmdLine),
             ssh_connection:send(CRef, Chan, bin_to_base64(ConfigData)),
             ssh_connection:send(CRef, Chan, ["#END_OF_FILE__store_config__", CallRef, "\n"]),
-            {ok, State};
+            {ok, NewState};
         {cluster_status} ->
-            CmdLine = make_cmd(State, CallRef, "cluster_status", []),
+            CmdLine = make_cmd(NewState, CallRef, "cluster_status", []),
             ssh_connection:send(CRef, Chan, CmdLine),
-            {noreply, State, ?TIMEOUT};
+            {noreply, NewState, ?TIMEOUT};
         {submit_simulation, Simulation, Partition} ->
             #simulation{id = SimulationName, model = Model, params = Params} = Simulation,
-            CmdLine = make_cmd(State, CallRef, "submit_simulation", [
+            CmdLine = make_cmd(NewState, CallRef, "submit_simulation", [
                 SimulationName,                              % sim_name
                 ebi:get_id(Model),                           % cfg_name
                 Partition,                                   % partition
                 [param_to_option(Param) || Param <- Params]  % params
             ]),
             ssh_connection:send(CRef, Chan, CmdLine),
-            {ok, State};
+            {ok, NewState};
         {delete_simulation, SimulationId} ->
-            CmdLine = make_cmd(State, CallRef, "delete_simulation", [SimulationId]),
+            CmdLine = make_cmd(NewState, CallRef, "delete_simulation", [SimulationId]),
             ssh_connection:send(CRef, Chan, CmdLine),
-            {noreply, State, ?TIMEOUT};
+            {noreply, NewState, ?TIMEOUT};
         {cancel_simulation, SimulationId} ->
-            CmdLine = make_cmd(State, CallRef, "cancel_simulation", [SimulationId]),
+            CmdLine = make_cmd(NewState, CallRef, "cancel_simulation", [SimulationId]),
             ssh_connection:send(CRef, Chan, CmdLine),
-            {noreply, State, ?TIMEOUT};
+            {noreply, NewState, ?TIMEOUT};
         {simulation_result, SimulationId} ->
-            CmdLine = make_cmd(State, CallRef, "simulation_result", [SimulationId]),
+            CmdLine = make_cmd(NewState, CallRef, "simulation_result", [SimulationId]),
             ssh_connection:send(CRef, Chan, CmdLine),
-            {noreply, State, ?TIMEOUT}
+            {noreply, NewState, ?TIMEOUT}
     end.
 
 

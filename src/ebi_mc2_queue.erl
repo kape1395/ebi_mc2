@@ -409,10 +409,16 @@ handle_cast({ebi_mc2_queue, cluster_status_updated, ClusterStatus}, State) ->
             {ok, PID} ->
                 ok = ebi_mc2_simulation:status_update(PID, SimulationId, RuntimeStatus, FilesystemStatus);
             {error, not_found} ->
-                error_logger:warning_msg(
-                    "Simulation ~s is not running, but the report ~p came from the cluster for it.~n",
-                    [SimulationId, SimulationStatus]),
-                ok
+                case  SimulationStatus of
+                    {_, "COMPLETED", undefined} ->
+                        % Dont print warnings, if cluster is still reporting it as a completed.
+                        ok;
+                    _ ->
+                        error_logger:warning_msg(
+                            "Simulation ~s is not running, but the report ~p came from the cluster for it.~n",
+                            [SimulationId, SimulationStatus]),
+                        ok
+                end
         end
     end,
     ok = lists:foreach(F, ClusterStatusMerged),

@@ -63,7 +63,7 @@ init({}) ->
     Mod = ebi_mc2_simulation,
     Spec = {Mod,
         {Mod, start_link, []},
-        permanent, brutal_kill, worker, [Mod]
+        transient, brutal_kill, worker, [Mod]
     },
     {ok, {{simple_one_for_one, 120, 60}, [Spec]}}.
 

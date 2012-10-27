@@ -241,14 +241,18 @@ handle_event({status_update, SimulationId, RTStatus, FSStatus}, StateName, State
             ok = do_report_status(Queue, SimulationId, NextState),
             Action;
         {finalize, ResultStatus} ->
-            {ok, SimulationId, ResultData} = ebi_mc2_cluster:simulation_result(
-                Cluster, SimulationId
-            ),
-            ok = ebi_mc2_queue:simulation_result_generated(
-                Queue, SimulationId,
-                expanded_state(ResultStatus), ResultData
-            ),
-            do_cleanup(StateData, ResultStatus);
+            case ebi_mc2_cluster:simulation_result(Cluster, SimulationId) of
+                {ok, SimulationId, ResultData} ->
+                    ok = ebi_mc2_queue:simulation_result_generated(
+                        Queue, SimulationId,
+                        expanded_state(ResultStatus), ResultData
+                    ),
+                    do_cleanup(StateData, ResultStatus);
+                {error, not_found} ->
+                    do_cleanup(StateData, ResultStatus);
+                {error, running} ->
+                    {stop, {error, running}, StateData}
+            end;
         {finished, TerminalState} ->
             ok = do_report_status(Queue, SimulationId, TerminalState),
             ok = ebi_mc2_queue:unregister_simulation(Queue, SimulationId),
