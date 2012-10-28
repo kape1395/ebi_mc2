@@ -241,9 +241,11 @@ parse(Event, {ok, Parsed, State = #state{cmd = simulation_result, res = Res}}) -
         {out, <<"RESULT:", _SimulationId:40/binary, ":START">>} ->
             {ok, Parsed, State#state{res = []}};
 
-        {out, <<"RESULT:", _SimulationId:40/binary, ":END">>} ->
-            respond_and_process_next(lists:reverse(Res), {ok, Parsed, State#state{res = undefined}});
-
+        {out, <<"RESULT:", SimulationId:40/binary, ":END">>} ->
+            respond_and_process_next(
+                {ok, binary_to_list(SimulationId), lists:reverse(Res)},
+                {ok, Parsed, State#state{res = undefined}}
+            );
         {data, MsgBase64} ->
             DecodedMsg = base64:decode(MsgBase64),
             {ok, Parsed, State#state{res = [DecodedMsg | Res]}}
