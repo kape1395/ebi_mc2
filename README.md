@@ -8,10 +8,12 @@ coniguring such connections are provided along with the [server side scripts][pr
 ## Manual startup
 
 Build the server and start the erlang shell:
+
     make clean compile
     env ERL_LIBS=deps:. erl -config ebi_mc2-test
 
 In the erlang shell:
+
     application:start(crypto).
     application:start(ssh).
     application:start(xmerl).
@@ -30,6 +32,7 @@ In the erlang shell:
 ## Tracing
 
 In the erlang shell:
+
     dbg:start().
     dbg:tracer().
     %dbg:tracer(port,dbg:trace_port(file,"dbg-trace.log")).  %% How to read the output file?
@@ -41,5 +44,5 @@ In the erlang shell:
 
 ## References
 
-[1]: http://binaries.erlang-solutions.com/R15A/lib/ssh-2.0.8./src/ssh_shell.erl
+[1]: http://binaries.erlang-solutions.com/R15A/lib/ssh-2.0.8./src/ssh_shell.erl (Erlang SSH Shell)
 
