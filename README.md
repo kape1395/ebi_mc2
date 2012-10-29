@@ -1,8 +1,8 @@
 # `ebi_mc2`
 
 Mif Cluster v2 queue implementation for Erlang Biosensor simulation coordinator (EBI).
-This module is based on the erlang's SSH chanel implementation [1]. The notes on
-coniguring such connections are provided along with the [server side scripts][priv/cluster/README.md].
+This module is based on the erlang's [SSH chanel implementation][1]. The notes on
+coniguring such connections are provided along with the [server side scripts][2].
 
 
 ## Manual startup
@@ -42,7 +42,6 @@ In the erlang shell:
     %dbg:stop_clear().
 
 
-## References
 
 [1]: http://binaries.erlang-solutions.com/R15A/lib/ssh-2.0.8./src/ssh_shell.erl (Erlang SSH Shell)
-
+[2]: priv/cluster/README.md (EBI MC2 Cluster-side implementation description)
