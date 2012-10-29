@@ -1,0 +1,18 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: Detect suplicate simulations on the erlang side.
+desc: This should be done in the queue and maybe in the solver voordinator.
+type: :task
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-28 13:38:23.732993 Z
+references: []
+
+id: 070ba67bc464ec63c0cc81a7358425cfa0d113f6
+log_events: 
+- - 2012-10-28 13:38:25.819972 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""
