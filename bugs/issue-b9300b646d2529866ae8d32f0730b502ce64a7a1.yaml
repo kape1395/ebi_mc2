@@ -1,0 +1,24 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: ebi_mc2_simulation processes are sometimes left to hang indefinitelly.
+desc: |-
+  The particular case was the process stuct in the running state.
+  No simulations were performed for that particular process.
+  Maybe the process should check if it is still needed after some timeout?
+  Maybe each simulation should have its own unique ref? Then the queue could
+  say for the procsess, if it was replaced by another (when the simulation
+  process will ask for info after a timeout).
+type: :bugfix
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-30 04:44:51.145610 Z
+references: []
+
+id: b9300b646d2529866ae8d32f0730b502ce64a7a1
+log_events: 
+- - 2012-10-30 04:44:52.720975 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""
