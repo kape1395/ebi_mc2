@@ -1,0 +1,20 @@
+--- !ditz.rubyforge.org,2008-03-06/issue 
+title: ebi_mc2_simulation should terminate on startup if its in the terminal state.
+desc: |-
+  The process should check, if the state returned by the queue refers to a terminal state.
+  If yes, the process should terminate normally.
+type: :bugfix
+component: ebi_mc2
+release: 
+reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
+status: :unstarted
+disposition: 
+creation_time: 2012-10-30 04:51:14.001730 Z
+references: []
+
+id: 8fc577f9c1d9f9e4f72b0cba2eec5621bfbe2de4
+log_events: 
+- - 2012-10-30 04:51:15.053437 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - created
+  - ""
