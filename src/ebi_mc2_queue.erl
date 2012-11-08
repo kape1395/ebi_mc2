@@ -146,7 +146,7 @@ start_link(Config = #config{name = Name}, Supervisor) ->
 cluster_status_updated(Queue, ClusterStatus) ->
     ok = gen_server:cast(Queue, {ebi_mc2_queue, cluster_status_updated, ClusterStatus}),
     ok.
-    
+
 
 %%
 %%  Invoked by ebi_mc2_simulation, when the simulation is done.
