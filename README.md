@@ -22,7 +22,7 @@ In the erlang shell:
     application:start(syntax_tools).
     application:start(lager).
     % Here you can include the tracing calls.
-    application:start(ebi).
+    application:start(ebi_core).
     application:start(ebi_mc2).
     rr(ebi).
     Model = ebi_model:read_model("example/str_nanotubes_JR/model-1D-k2fin-t5.xml", kp1_xml).

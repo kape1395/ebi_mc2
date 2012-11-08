@@ -18,6 +18,6 @@
     {vsn, {cmd, "sed -ne '1s/^.* (\\(.*\\)) .*$/\\1/p' ChangeLog"}},
     {registered, [ebi_mc2]},
     {mod, {ebi_mc2_app, []}},
-    {applications, [kernel, stdlib, crypto, ssh, mnesia]}, % ebi
+    {applications, [kernel, stdlib, crypto, ssh, mnesia]}, % ebi_core ?
     {env, []}
 ]}.
