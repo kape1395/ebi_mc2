@@ -13,7 +13,7 @@
 % See the License for the specific language governing permissions and
 % limitations under the License.
 %
--include("ebi.hrl").
+-include_lib("ebi_core/include/ebi.hrl").
 
 %%
 %%  Internal data structures for this application.

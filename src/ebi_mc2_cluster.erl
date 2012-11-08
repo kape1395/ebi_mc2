@@ -32,7 +32,7 @@
 ]).
 -export([init/1, terminate/2, handle_ssh_msg/2, handle_msg/2]).
 -export([handle_call/3, handle_cast/2, code_change/3]).
--include("ebi.hrl").
+-include_lib("ebi_core/include/ebi.hrl").
 -include("ebi_mc2.hrl").
 -define(TIMEOUT, 10000).
 -define(CHECK_STATUS_FROM_ME, 'ebi_mc2_cluster$check_status_from_me').

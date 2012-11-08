@@ -68,7 +68,7 @@
     cleaningup_canceled/2,
     cleaningup_failed/2
 ]).
--include("ebi.hrl").
+-include_lib("ebi_core/include/ebi.hrl").
 -include("ebi_mc2.hrl").
 -define(DEFAUL_TIMEOUT, 60000).
 

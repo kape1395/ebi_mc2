@@ -31,7 +31,7 @@
     add_call/2,
     parse_lines/2
 ]).
--include("ebi.hrl").
+-include_lib("ebi_core/include/ebi.hrl").
 -include("ebi_mc2.hrl").
 
 

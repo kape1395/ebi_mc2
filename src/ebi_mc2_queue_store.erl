@@ -22,7 +22,7 @@
     init/0, add/2, delete/2, get/2, get_running/1,
     get_next_pending/1, set_status/3, set_target/3, add_command/3
 ]).
--include("ebi.hrl").
+-include_lib("ebi_core/include/ebi.hrl").
 -include("ebi_mc2.hrl").
 
 init() ->
