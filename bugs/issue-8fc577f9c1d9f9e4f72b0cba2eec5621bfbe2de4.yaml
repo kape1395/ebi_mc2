@@ -7,8 +7,8 @@ type: :bugfix
 component: ebi_mc2
 release: 
 reporter: Karolis Petrauskas <k.petrauskas@gmail.com>
-status: :unstarted
-disposition: 
+status: :closed
+disposition: :fixed
 creation_time: 2012-10-30 04:51:14.001730 Z
 references: []
 
@@ -18,3 +18,7 @@ log_events:
   - Karolis Petrauskas <k.petrauskas@gmail.com>
   - created
   - ""
+- - 2012-11-08 05:11:02.172629 Z
+  - Karolis Petrauskas <k.petrauskas@gmail.com>
+  - closed with disposition fixed
+  - Checking, if restoring in a terminal state.

@@ -44,6 +44,7 @@
 %%
 -module(ebi_mc2_simulation).
 -behaviour(gen_fsm).
+-compile([{parse_transform, lager_transform}]).
 -export([ % API
     start_link/2,
     cancel/1,
@@ -157,16 +158,20 @@ initializing({initialize}, State) ->
         [] -> ok;
         [LastCommand | _] -> gen_fsm:send_event(self(), LastCommand)
     end,
-    case SavedStateName of
-        undefined ->
+    case {SavedStateName, terminal_state(SavedStateName)} of
+        {undefined, _} ->
             %% This is first start
             do_start(FullState);
-        assigned ->
+        {assigned, _} ->
             %% This is first start, the previous start was unsuccessful.
             do_start(FullState);
-        _ ->
+        {_, false} ->
             %% Here we have process restarts.
-            {next_state, SavedStateName, FullState}
+            {next_state, SavedStateName, FullState};
+        {_, _} ->
+            %% Restored in a terminal state. We should quit now.
+            lager:warning("Simulation restarted in terminal state=~p, sopping.", [SavedStateName]),
+            {stop, normal, FullState}
     end.
 
 
