@@ -22,6 +22,7 @@
 %%
 -module(ebi_mc2_cluster).
 -behaviour(ssh_channel).
+-compile([{parse_transform, lager_transform}]).
 -export([ % API
     start_link/2,
     submit_simulation/3,
@@ -149,7 +150,7 @@ init({Config = #config_cluster{cluster_command = Cmd, status_check_ms = Interval
 %%  Termination.
 %%
 terminate(Reason, #state{tref = TRef, cref = CRef, chan = Chan}) ->
-    error_logger:info_msg("~s: destroy(reason=~p)~n", [?MODULE, Reason]),
+    lager:info("~s: destroy(reason=~p)", [?MODULE, Reason]),
     timer:cancel(TRef),
     ssh_connection:close(CRef, Chan),
     ssh:close(CRef),
@@ -168,7 +169,7 @@ handle_call(Command, From, State) ->
 %%
 handle_cast(Command, State) ->
     invoke_cluster_command(Command, undefined, State).
-    
+
 
 %%
 %%  Messages comming from the SSH server.
@@ -192,7 +193,7 @@ handle_ssh_msg({ssh_cm, _Ref, {data, _Chan, _Type, BinaryData}}, State) ->
     {ok, State#state{line_buf = PartialLine, resp = NewResp}};
 
 handle_ssh_msg(Msg, State) ->
-    error_logger:info_msg("~s: handle_ssh_msg(msg=~p)~n", [?MODULE, Msg]),
+    lager:info("handle_ssh_msg(msg=~p)", [Msg]),
     {ok, State}.
 
 
@@ -220,14 +221,14 @@ handle_msg({ssh_channel_up, _Chan, _CRef}, State) ->
 %%  Terminate on timeout.
 %%
 handle_msg(timeout, State = #state{chan = Chan}) ->
-    error_logger:info_msg("~s: handle_msg(timeout)~n", [?MODULE]),
+    lager:info("handle_msg(timeout)"),
     {stop, Chan, State};
 
 %%
 %%  Ignore all the rest.
 %%
 handle_msg(Msg, State) ->
-    error_logger:info_msg("~s: handle_msg(msg=~p)~n", [?MODULE, Msg]),
+    lager:info("handle_msg(msg=~p)", [Msg]),
     {ok, State}.
 
 

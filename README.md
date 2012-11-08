@@ -18,7 +18,9 @@ In the erlang shell:
     application:start(ssh).
     application:start(xmerl).
     application:start(mnesia).
-    lager:start().
+    application:start(compiler).
+    application:start(syntax_tools).
+    application:start(lager).
     % Here you can include the tracing calls.
     application:start(ebi).
     application:start(ebi_mc2).

@@ -92,6 +92,7 @@
 %%
 -module(ebi_mc2_queue).
 -behaviour(ebi_queue).
+-compile([{parse_transform, lager_transform}]).
 -export([ %% Public API 
     start_link/2,
     convert_config/2
@@ -414,8 +415,8 @@ handle_cast({ebi_mc2_queue, cluster_status_updated, ClusterStatus}, State) ->
                         % Dont print warnings, if cluster is still reporting it as a completed.
                         ok;
                     _ ->
-                        error_logger:warning_msg(
-                            "Simulation ~s is not running, but the report ~p came from the cluster for it.~n",
+                        lager:warning(
+                            "Simulation ~s is not running, but the report ~p came from the cluster for it.",
                             [SimulationId, SimulationStatus]),
                         ok
                 end

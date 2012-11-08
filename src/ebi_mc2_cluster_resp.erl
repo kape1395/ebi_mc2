@@ -25,6 +25,7 @@
 %%      simulation_result
 %%
 -module(ebi_mc2_cluster_resp).
+-compile([{parse_transform, lager_transform}]).
 -export([   % API
     init/0,
     add_call/2,
@@ -114,19 +115,19 @@ parse({line, ResponseLine}, {ok, Parsed, State = #state{cmds = Commands}}) ->
                 CommandCallRef ->
                     parse({out, Msg}, {ok, Parsed, State});
                 _ ->
-                    log_err("line(OUT): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
+                    lager:error("line(OUT): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
                     {error, Parsed, State}
             end;
 
         <<"#CLUSTER:ERR(", CallRefBin:40/binary, ")==>", ErrCode:3/binary, ":", ErrMsg/binary>> ->
-            log_err("line(ERR): ref=~p, code=~p, msg=~p", [CallRefBin, ErrCode, ErrMsg]),
+            lager:error("line(ERR): ref=~p, code=~p, msg=~p", [CallRefBin, ErrCode, ErrMsg]),
             CallRef = binary:bin_to_list(CallRefBin),
             #cmd{call_ref = CommandCallRef} = queue:head(Commands),
             case CallRef of
                 CommandCallRef ->
                     respond_and_process_next(error, {ok, Parsed, State});
                 _ ->
-                    log_err("line(ERR): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
+                    lager:error("line(ERR): wrong call ref, expected ~p, line=~p", [CommandCallRef, ResponseLine]),
                     {error, Parsed, State}
             end;
 
@@ -134,11 +135,11 @@ parse({line, ResponseLine}, {ok, Parsed, State = #state{cmds = Commands}}) ->
             parse({data, Msg}, {ok, Parsed, State});
 
         <<"#", _Msg/binary>> ->
-            log_err("line(#??): ~p", [ResponseLine]),
+            lager:error("line(#??): ~p", [ResponseLine]),
             {ok, Parsed, State};
 
         _ ->
-            log_err("line(???): ~p", [ResponseLine]),
+            lager:error("line(???): ~p", [ResponseLine]),
             {ok, Parsed, State}
     end;
 
@@ -170,10 +171,10 @@ parse(Event, {ok, Parsed, State = #state{cmd = cluster_status, res = Res}}) ->
     case Event of
         {out, <<"CLUSTER_STATUS:START">>} ->
             {ok, Parsed, State#state{res = []}};
-        
+
         {out, <<"CLUSTER_STATUS:END">>} ->
             respond_and_process_next({cluster_status, Res}, {ok, Parsed, State#state{res = undefined}});
-        
+
         {data, <<Type:2/binary, ":", SimulationId:40/binary, ":", StatusAndJobId/binary>>} ->
             StatusType = case Type of
                 <<"FS">> -> fs;
@@ -211,7 +212,7 @@ parse(Event, {ok, Parsed, State = #state{cmd = delete_simulation}}) ->
             ok;
 
         {out, <<"DELETE:", SimulationId:40/binary, ":SIM_RUNNING">>} ->
-            log_err("Simulation ~s not deleted (still running)", [SimulationId])
+            lager:warning("Simulation ~s not deleted (still running)", [SimulationId])
     end,
     respond_and_process_next(ok, {ok, Parsed, State});
 
@@ -278,10 +279,4 @@ respond_and_process_next(Response, {ok, Parsed, State = #state{cmds = Commands}}
             {ok, NewParsed, State#state{cmd = NewCommandName, cmds = NewCommands, res = undefined}}
     end.
 
-
-%%
-%%  Logs errors in a uniform way. 
-%%
-log_err(Msg, Args) ->
-    error_logger:error_msg("~s: " ++ Msg ++ "~n", [?MODULE | Args]).
 
