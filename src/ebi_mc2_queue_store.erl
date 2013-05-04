@@ -36,7 +36,7 @@ add(Table, Simulation) ->
     true = ets:insert(Table, {
         SimulationId,                       % Simulation ID.
         Simulation,                         % Simulation definition.
-        {pending, undefined, undefined},    % Simulation state: {Global, Local, IsTerminal}        
+        {pending, undefined, undefined},    % Simulation state: {Global, Local, IsTerminal}
         [],                                 % Commands sent to this simulation.
         {undefined, undefined}              % Target: {ClusterName, PartitionName}.
     }),

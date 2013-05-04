@@ -382,7 +382,7 @@ handle_cast({ebi_mc2_queue, simulation_status_updated, SimulationId, Status}, St
         false ->
             {noreply, State}
     end;
-    
+
 
 handle_cast({ebi_mc2_queue, unregister_simulation, SimulationId}, State) ->
     ok = sim_running_del(State#state.running, SimulationId),
@@ -445,7 +445,7 @@ handle_info({restart_simulations}, State = #state{sim_sup = SimSup, store = Stor
     {ok, TargetsZeroized} = update_available_target(TargetsInitial, zeroize_undefined),
     TargetsAfterRestart = lists:foldl(StartSimulation, TargetsZeroized, ebi_mc2_queue_store:get_running(Store)),
     {noreply, State#state{targets = TargetsAfterRestart}}.
-    
+
 
 
 %% =============================================================================
@@ -565,13 +565,13 @@ update_available_target(Targets, {add, {Cluster, Partition}, SimulationId}) ->
             T
     end,
     {ok, lists:map(F, Targets)};
-           
+
 update_available_target(Targets, {remove, SimulationId}) ->
     F = fun (T = #target{active = A}) ->
         T#target{active = A -- [SimulationId]}
     end,
     {ok, lists:map(F, Targets)}.
-           
+
 
 
 %%
